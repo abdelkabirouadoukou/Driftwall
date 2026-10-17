@@ -15,6 +15,7 @@ import Skeleton from './Skeleton.tsx';
 import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { importDownloaded } from '../lib/importer.ts';
+import { mainScrollElement } from '../lib/dom.ts';
 import type { DiscoverItem, DiscoverSource } from '../lib/domain.ts';
 
 const SOURCES: { value: DiscoverSource; label: string; kind: string }[] = [
@@ -98,7 +99,9 @@ export default function Discover({ query, category, onCategory }: Props) {
     setLoadingMore(false);
   }, [loadingMore, loading, hasMore, error, page, loadPage]);
 
-  // Infinite scroll via a sentinel at the end of the grid.
+  // Infinite scroll via a sentinel at the end of the grid. The scroll
+  // container (not the viewport) is the observer root, since <body> never
+  // scrolls — without this the sentinel would never re-trigger.
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore || error) return;
@@ -106,7 +109,7 @@ export default function Discover({ query, category, onCategory }: Props) {
       (entries) => {
         if (entries[0]?.isIntersecting) void loadMore();
       },
-      { rootMargin: '480px' },
+      { root: mainScrollElement(), rootMargin: '480px' },
     );
     observer.observe(el);
     return () => observer.disconnect();

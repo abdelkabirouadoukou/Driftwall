@@ -71,6 +71,7 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
@@ -131,20 +132,27 @@ select {
 
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
 }
 
 .main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Must be 0 (not the default `auto`) so the scroll child can shrink. */
+  min-height: 0;
   height: 100%;
 }
 
 .content {
+  /* The single scroll container for every view. */
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-5) var(--space-6) var(--space-8);
 }
 
@@ -158,11 +166,25 @@ select {
   height: 10px;
 }
 
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: var(--radius-pill);
   border: 3px solid transparent;
   background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* --------------------------------------------------------------- sidebar */
@@ -171,6 +193,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-height: 0;
+  overflow-y: auto;
   background: var(--surface);
   border-right: 1px solid var(--border);
   padding: var(--space-3) var(--space-2);
@@ -239,6 +263,7 @@ select {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: none;
   height: 52px;
   padding: 0 var(--space-5);
   border-bottom: 1px solid var(--border);

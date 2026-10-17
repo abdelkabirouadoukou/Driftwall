@@ -8,6 +8,7 @@ import Displays from './components/Displays.tsx';
 import Settings from './components/Settings.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { isTauri } from './lib/api.ts';
+import { MAIN_SCROLL_ID } from './lib/dom.ts';
 
 export default function App() {
   return (
@@ -61,7 +62,7 @@ function Shell() {
       <Sidebar view={view} onNavigate={setView} />
       <div className="main">
         <TopBar query={query} onQuery={setQuery} inputRef={searchRef} />
-        <main className="content">
+        <main className="content" id={MAIN_SCROLL_ID}>
           <div className="content-inner">
             {view === 'home' && (
               <Home
