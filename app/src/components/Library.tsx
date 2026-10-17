@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Video,
   X,
@@ -19,6 +20,7 @@ import * as api from '../lib/api.ts';
 import { isTauri } from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
 import { importPaths, importWallpapers } from '../lib/importer.ts';
+import { regenerateThumbnail, repairVideoThumbnails } from '../lib/thumbnails.ts';
 import type { WallpaperRecord } from '../lib/domain.ts';
 
 type Filter = 'all' | 'static' | 'video';
@@ -51,6 +53,8 @@ export default function Library({ query }: { query: string }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dragging, setDragging] = useState(false);
   const anchorRef = useRef<string | null>(null);
+  // One-time sweep so clips imported before the black-frame fix get repaired.
+  const repairedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const rows = await api.libraryList();
@@ -63,6 +67,23 @@ export default function Library({ query }: { query: string }) {
       .catch(() => toast('Could not load library', 'error'))
       .finally(() => setLoading(false));
   }, [refresh, toast]);
+
+  useEffect(() => {
+    if (repairedRef.current || loading || !isTauri()) return;
+    repairedRef.current = true;
+    const videos = items.filter((i) => i.type === 'video');
+    if (videos.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const fixed = await repairVideoThumbnails(videos);
+      if (cancelled || fixed === 0) return;
+      await refresh();
+      toast(`Regenerated ${fixed} video thumbnail${fixed === 1 ? '' : 's'}.`);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, items, refresh, toast]);
 
   const importBatch = useCallback(
     async (paths: readonly string[]) => {
@@ -215,6 +236,21 @@ export default function Library({ query }: { query: string }) {
     });
   };
 
+  const regenerate = async (item: WallpaperRecord) => {
+    toast('Regenerating thumbnail…');
+    try {
+      const ok = await regenerateThumbnail(item);
+      if (!ok) {
+        toast('Could not regenerate that thumbnail.', 'error');
+        return;
+      }
+      await refresh();
+      toast('Thumbnail regenerated.');
+    } catch (error) {
+      toast(`Could not regenerate thumbnail: ${String(error)}`, 'error');
+    }
+  };
+
   const startRename = (item: WallpaperRecord) => {
     setRenaming({ id: item.id, value: item.title });
   };
@@ -246,6 +282,11 @@ export default function Library({ query }: { query: string }) {
     return [
       { label: 'Rename', icon: Pencil, onSelect: () => startRename(item) },
       { label: 'Reveal in Finder', icon: FolderOpen, onSelect: () => reveal(item) },
+      {
+        label: 'Regenerate thumbnail',
+        icon: RefreshCw,
+        onSelect: () => void regenerate(item),
+      },
       'sep',
       {
         label: many ? `Delete ${count} wallpapers` : 'Delete',
