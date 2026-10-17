@@ -5,6 +5,9 @@ import { defineConfig } from 'vite';
 // Tauri's dev server and the macOS WebView expect a fixed port.
 export default defineConfig({
   plugins: [react()],
+  // The design SVGs live in app/design; serving that folder makes the same
+  // logo.svg available at /logo.svg for the sidebar and the favicon.
+  publicDir: 'design',
   clearScreen: false,
   build: {
     target: 'safari15',

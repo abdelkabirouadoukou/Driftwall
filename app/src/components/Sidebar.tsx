@@ -22,7 +22,7 @@ export default function Sidebar({ view, onNavigate }: Props) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true" />
+        <img className="brand-mark" src="/logo.svg" alt="" width={28} height={28} />
         <span className="brand-name">Driftwall</span>
       </div>
       <nav className="nav">
