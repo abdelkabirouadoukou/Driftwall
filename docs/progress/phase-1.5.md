@@ -77,15 +77,58 @@ All network access is in Rust; the webview never talks to a provider directly.
 Nothing is bundled or re-hosted: assets stream straight to the user's machine
 and every item carries its attribution URL.
 
+## Post-review UI fixes
+
+Two bugs found while using the app, each fixed on its own commit.
+
+### Pages don't scroll (`ce3fc6f`)
+
+The content pane could not scroll — Home was cut off at "Browse by category".
+The pane used `flex: 1; overflow-y: auto` but no `min-height: 0`, so its default
+`min-height: auto` kept it sized to its content; it grew past the viewport
+instead of scrolling, and `body { overflow: hidden }` clipped the rest.
+
+- Pinned the whole root chain (`html, body, #root`) to `height: 100%` +
+  `overflow: hidden`.
+- `.main` and `.content` get `min-height: 0`; the grid row is bounded with
+  `minmax(0, 1fr)`; the sidebar scrolls independently and the top bar is
+  `flex: none` (fixed above the scroller).
+- The content pane is the single scroll container: `overflow-y: auto`,
+  `overscroll-behavior: contain`, bottom padding, and a thin token-coloured
+  WebKit scrollbar.
+- Discover's infinite-scroll `IntersectionObserver` now uses the scroll
+  container (`#main-scroll`) as its root rather than the viewport, since
+  neither `<body>` nor the viewport scrolls.
+- `app/src/styles/layout.test.ts` guards these CSS invariants (jsdom has no
+  layout engine, so the test asserts the declarations instead of geometry).
+
+### Black video thumbnails (`3e8a9c9`)
+
+Video thumbnails were black because the first frame of most clips is black and
+probing captured at `t = 0`/`1s`.
+
+- Capture now waits for `loadeddata` → `seeked` → `requestVideoFrameCallback`
+  (rAF fallback), so a composed frame is always present before drawing.
+- Frames are sampled at ~10% of the duration (clamped 0.5–3s) instead of a
+  fixed offset.
+- If the frame is nearly black (mean luminance below
+  `BLACK_LUMINANCE_THRESHOLD`), up to three further timestamps (25/50/75%) are
+  tried and the brightest is kept (`app/src/lib/frames.ts`, unit-tested).
+- Existing clips are repaired by a one-time library sweep that regenerates any
+  video whose stored thumbnail is missing or black, plus a **Regenerate
+  thumbnail** action in the library context menu
+  (`app/src/lib/thumbnails.ts`).
+
 ## Verification (run locally)
 
 | Step | Command | Result |
 |---|---|---|
-| Frontend tests | `pnpm test` | **47 passed / 4 files** |
+| Frontend tests | `pnpm test` | **66 passed / 6 files** |
 | Frontend build | `pnpm build` | ok (`dist/` emitted) |
 | Rust check | `cargo check` | ok, no warnings |
 | Rust tests | `cargo test` | **18 passed** (10 discover + 8 store) |
 
+The two fixes above changed no Rust, so the Rust rows are unchanged from A3.
 `pnpm tauri dev` was not run, per the agreed verification policy
 (`pnpm build` / `pnpm test` / `cargo check` / `cargo test` only).
 
