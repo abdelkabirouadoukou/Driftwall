@@ -1,16 +1,15 @@
 # macOS
 .DS_Store
 
-# Swift / Xcode
-app/**/xcuserdata/
-app/**/*.xcworkspace/xcuserdata/
-app/**/DerivedData/
-build/
-*.ipa
-*.dSYM.zip
-
-# Node / T3
+# Node / Tauri
 node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+*.tsbuildinfo
+.vite/
+
+# T3 / backend
 backend/.next/
 backend/.turbo/
 .env

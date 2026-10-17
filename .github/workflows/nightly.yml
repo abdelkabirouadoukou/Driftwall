@@ -1,0 +1,62 @@
+name: Nightly
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  nightly:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate nightly tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          DATE=$(date +%Y%m%d)
+          TAG="nightly-${DATE}-${SHORT_SHA}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "name=Driftwall nightly ${DATE} (${SHORT_SHA})" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm --filter driftwall-app test
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: ${{ steps.tag.outputs.name }}
+          releaseBody: 'Automatic nightly build from main @ ${{ github.sha }} — unsigned, for testing only. Not for daily use.'
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
