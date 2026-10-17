@@ -236,3 +236,108 @@ Observed feature surface (from class names, storyboards, and resources):
    scope.
 5. Low Power Mode / thermal / screen-lock reactions are unconfirmed; treat as Driftwall
    opportunities rather than confirmed parity items.
+
+---
+
+# Phase 0.5 — Runtime observations (read-only)
+
+**Method:** Public, read-only runtime observation only. Tools used: CoreGraphics
+`CGWindowListCopyWindowInfo` (window inventory), `lsof` (open files), `top`/`ps` (CPU),
+`ioreg` IOAccelerator (GPU counters), `pmset -g assertions`, `log show`, `defaults read
+com.apple.spaces`, and `screencapture` for frame-diffing. **No** debugger attach, no code
+injection, no patching, no modification of the target, no license/watermark investigation.
+
+**Host:** MacBook Air 8,2 — Intel Core i5-8210Y (2C/4T), macOS 12.7.6 (21H1320), single display
+1680×1050 @2×. Target running as PID 1501; window owner display name is **"MyWallpaper"**.
+(Uptime at sampling ≈ 22 h.)
+
+## 1. Window inventory & levels (CGWindowList, read-only)
+
+| Window | Size / position | `kCGWindowLayer` | Meaning |
+|---|---|---|---|
+| Wallpaper surface | 1680×1050 @ (0,0) | **-2147483623** | **`kCGDesktopWindowLevel`** exactly |
+| Auxiliary desktop window | 1580×865 @ (50,75) | **-2147483622** | `kCGDesktopWindowLevel + 1` |
+| Status-bar item | 37×24 @ (987,0) | **25** | `kCGStatusWindowLevel` → `NSStatusItem` |
+
+Reference levels on the same display: Finder desktop icons `-2147483603`
+(`kCGDesktopIconWindowLevel`), Dock `-2147483624`, Window Server backstop `-2147483626`.
+
+Observations:
+- The full-screen wallpaper window is placed **exactly at the system desktop level**, i.e. behind
+  desktop icons — confirming the "own window at desktop layer" rendering approach (not just the
+  system desktop picture).
+- A **second window sits one level above the desktop** (`desktop+1`), sized 1580×865 (inset on a
+  1680×1050 screen). Its purpose was not confirmable read-only; candidates are an occlusion-sensing
+  window or a frame/mask overlay. Recorded as **unconfirmed**.
+- The status-bar item is a standard `NSStatusItem` (layer 25).
+- All MyWallpaper windows report `kCGWindowSharingState = 0` (none) → the wallpaper windows are
+  **excluded from window captures** (window-level content capture returned `None`).
+- Per-window `kCGWindowMemoryUsage ≈ 1264 KB`, i.e. pixel content is composited by the WindowServer
+  /GPU and not held as a large CPU-side backing buffer.
+
+## 2. Space behavior
+
+- `com.apple.spaces`: the main display is configured with **5 managed Spaces** (IDs 5–9); current
+  Space = 5.
+- Pixel analysis of a full-screen capture on the current Space showed a **pure full-bleed gradient
+  with no window edges and no visible menu bar** — i.e. the current Space displayed only the
+  desktop (the user's other apps reside on other Spaces).
+- **Not observable via public read-only APIs:** the window's `collectionBehavior`
+  (`canJoinAllSpaces`/`stationary`/`ignoresCycle`), the numeric `level` beyond the CG layer, and
+  stage-manager flags. Automated Space switching was deliberately avoided (it would require
+  synthesizing input). Presence-on-all-Spaces is therefore **inferred**, not directly measured.
+
+## 3. Idle / playback power
+
+- **Idle CPU:** MyWallpaper `%CPU ≈ 0.0` across `top` samples (5 × 2 s); cumulative CPU-time delta
+  of **0.03 s over 15 s (≈ 0.2 % CPU)**; process state `sleeping`. RSS ≈ **70 MB**, **13 threads**,
+  lifetime CPU ≈ 0:46.
+- **Frame diff:** two full-screen captures **3 s apart were pixel-identical** (0 changed pixels) →
+  the wallpaper was **not animating** at observation time.
+- **Power assertions:** the process owned **no** power assertions (no display-idle-sleep preventer),
+  consistent with paused playback. Display was on (`IODisplayWrangler` power state 4); no screen
+  saver running.
+- **GPU:** system-wide IOAccelerator `Device Utilization %` ranged **2–34 %**, but that is
+  dominated by other running apps; there is **no isolated per-process GPU counter** available
+  without elevated tooling (`powermetrics`, requires authorization). System-wide
+  `contextVideoCount = 9` GPU video-decode contexts.
+- **Decode path:** `VTDecoderXPCService` helper processes were running; one (PID 1517, alive since
+  ~app launch) is attributable to the app, confirming a **VideoToolbox hardware-decode session**.
+- **Cause of the paused state not determinable read-only.** The screen had no occluding windows and
+  no battery-pause was configured (see §4), so leading candidates are an **idle-pause** (the session
+  had no user input during automation), an occlusion-culling false-positive, or a user-selected
+  pause. Recorded as an open question.
+
+## 4. Energy settings (decoded archive, read-only)
+
+`EnergySettingModel` in `Documents/energySetting`:
+- `lowBatteryLevel = 5`
+- `isBattryPause = False`  ← pause-on-battery is **OFF**
+- `isOcclusionCulling = True`
+
+## 5. Media staging & current record
+
+- Current wallpaper is a **video** record: `videoResolution = 3840*2160`,
+  `videoExtension = mp4`, `videoRate = 1.7`, record name `D5CB1931-…`; tags include
+  dynamic-wallpaper / night-purple / nature-scenery. The system desktop picture is a user file
+  (`~/Downloads/Gemini_Generated_Image_….jpeg`).
+- The app held an open file descriptor to `Documents/tmp/<digits><UUID>.mp4` (~90 MB) that was
+  **no longer listed in the directory** → a transient/unlinked staging copy of the current video
+  (write → open → unlink pattern). Neutral storage note; mechanism out of scope.
+
+## 6. Benchmark status
+
+- **Captured:** idle/paused baseline for the original — **≈ 0 % CPU**, no GPU attribution possible,
+  static frames, ~70 MB RSS.
+- **Not yet captured:** the **animating** CPU/GPU benchmark. This requires an unobstructed desktop
+  with confirmed active animation and, ideally, AC power (pause-on-battery is off, but other power
+  conditions may still apply). See `docs/progress/phase-0.5.md` for the benchmark protocol.
+
+## 7. Phase 0.5 open questions
+
+1. What paused the wallpaper during observation (idle-pause vs. occlusion false-positive vs. other)?
+2. Purpose of the `desktop+1` auxiliary window (1580×865).
+3. Confirm `collectionBehavior`/Space persistence (needs privileged query or a manual Space-switch
+   test by the operator).
+4. Isolated per-process GPU attribution requires authorized `powermetrics`; otherwise rely on
+   frame-time/`ioreg` deltas.
