@@ -81,7 +81,7 @@ and every item carries its attribution URL.
 
 Two bugs found while using the app, each fixed on its own commit.
 
-### Pages don't scroll (`ce3fc6f`)
+### Pages don't scroll (`ce3fc6f`, `1fe6d1b`)
 
 The content pane could not scroll — Home was cut off at "Browse by category".
 The pane used `flex: 1; overflow-y: auto` but no `min-height: 0`, so its default
@@ -99,6 +99,10 @@ instead of scrolling, and `body { overflow: hidden }` clipped the rest.
 - Discover's infinite-scroll `IntersectionObserver` now uses the scroll
   container (`#main-scroll`) as its root rather than the viewport, since
   neither `<body>` nor the viewport scrolls.
+- Because the viewport no longer scrolls, keyboard scrolling lost its default
+  target, so Space / PageUp / PageDown / Home / End / arrows are mapped onto the
+  content pane (`1fe6d1b`). Interactive and editable targets are left alone, so
+  Space still activates a focused button and typing still works.
 - `app/src/styles/layout.test.ts` guards these CSS invariants (jsdom has no
   layout engine, so the test asserts the declarations instead of geometry).
 
@@ -128,7 +132,7 @@ probing captured at `t = 0`/`1s`.
 | Rust check | `cargo check` | ok, no warnings |
 | Rust tests | `cargo test` | **18 passed** (10 discover + 8 store) |
 
-The two fixes above changed no Rust, so the Rust rows are unchanged from A3.
+The fixes above changed no Rust, so the Rust rows are unchanged from A3.
 `pnpm tauri dev` was not run, per the agreed verification policy
 (`pnpm build` / `pnpm test` / `cargo check` / `cargo test` only).
 
