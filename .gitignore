@@ -23,3 +23,5 @@ secrets/
 
 # Misc
 *.log
+__pycache__/
+*.pyc
