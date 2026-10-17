@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Swift / Xcode
+app/**/xcuserdata/
+app/**/*.xcworkspace/xcuserdata/
+app/**/DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+
+# Node / T3
+node_modules/
+backend/.next/
+backend/.turbo/
+.env
+.env.*
+!.env.example
+
+# Secrets — never commit
+*.pem
+*.key
+secrets/
+
+# Misc
+*.log
