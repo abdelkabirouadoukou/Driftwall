@@ -24,6 +24,14 @@ export async function ensureDirs(): Promise<void> {
   await mkdir(await thumbnailsDir(), { recursive: true });
 }
 
+/**
+ * Asset-protocol URL for a raw media file at an absolute path. Used for video
+ * hover-preview in the library grid; thumbnails go through `resolveThumbUrls`.
+ */
+export function assetUrl(absolutePath: string): string {
+  return convertFileSrc(absolutePath);
+}
+
 /** Resolves asset-protocol URLs for each wallpaper's generated thumbnail. */
 export async function resolveThumbUrls(
   ids: readonly string[],

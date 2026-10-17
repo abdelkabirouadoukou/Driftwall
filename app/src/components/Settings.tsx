@@ -23,40 +23,48 @@ export default function Settings() {
   };
 
   return (
-    <section className="settings">
+    <section aria-label="Settings">
       <header className="page-head">
-        <h1>Settings</h1>
+        <div>
+          <h1>Settings</h1>
+          <p className="sub">Appearance, sources and playback.</p>
+        </div>
       </header>
 
-      <div className="setting-row">
-        <div>
-          <div className="setting-title">Show in Dock</div>
-          <div className="muted small">
-            When off, Driftwall runs from the menu bar only.
+      <div className="settings-section">
+        <h2>General</h2>
+        <div className="settings-card">
+          <div className="setting-row">
+            <div>
+              <div className="setting-title">Show in Dock</div>
+              <div className="setting-desc">
+                When off, Driftwall runs from the menu bar only.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={dock}
+              aria-label="Show in Dock"
+              className={dock ? 'switch on' : 'switch'}
+              onClick={toggleDock}
+              disabled={!loaded}
+            >
+              <span className="knob" />
+            </button>
           </div>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={dock}
-          aria-label="Show in Dock"
-          className={dock ? 'switch on' : 'switch'}
-          onClick={toggleDock}
-          disabled={!loaded}
-        >
-          <span className="knob" />
-        </button>
-      </div>
 
-      <div className="setting-row">
-        <div>
-          <div className="setting-title">Efficiency profile</div>
-          <div className="muted small">
-            1080p / 30 fps cap, hardware decode, pause on occlusion/battery/thermal.
-            Applied when playback ships (Phase 2).
+          <div className="setting-row">
+            <div>
+              <div className="setting-title">Efficiency profile</div>
+              <div className="setting-desc">
+                1080p / 30 fps cap, hardware decode, pause on occlusion/battery/thermal.
+                Applied when playback ships (Phase 2).
+              </div>
+            </div>
+            <span className="muted small">Default</span>
           </div>
         </div>
-        <span className="muted small">Default</span>
       </div>
     </section>
   );

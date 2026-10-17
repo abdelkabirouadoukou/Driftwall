@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Driftwall",
-        "width": 1100,
-        "height": 760,
-        "minWidth": 760,
-        "minHeight": 520,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1000,
+        "minHeight": 680,
         "resizable": true,
         "fullscreen": false
       }
