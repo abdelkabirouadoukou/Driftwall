@@ -55,6 +55,15 @@ pub struct Wallpaper {
     pub height: Option<u32>,
     #[serde(default)]
     pub duration: Option<f64>,
+    /// Origin of the wallpaper when it came from Discover (`wallhaven`/`pixabay`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Human-facing page for the original asset, for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    /// Original author/uploader, for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
     pub created_at: String,
 }
 
@@ -242,6 +251,9 @@ mod tests {
             width: Some(1920),
             height: Some(1080),
             duration: Some(12.5),
+            source: None,
+            source_url: None,
+            author: None,
             created_at: "2026-01-01T00:00:00.000Z".to_string(),
         }
     }

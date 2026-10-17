@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod discover;
 mod store;
 
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -12,6 +14,7 @@ use tauri::{
     AppHandle, Manager, State,
 };
 
+use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, Source};
 use store::{Library, Wallpaper};
 
 /// Whether the app shows a Dock icon (`Regular`) or is menu-bar only (`Accessory`).
@@ -189,6 +192,160 @@ fn settings_set(
     persist(&app, &snapshot)
 }
 
+/* ---------------------------------------------------------------- discover */
+
+/// Shared HTTP client (rustls + `Driftwall/<version>` User-Agent).
+static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::Client {
+    HTTP.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(discover::USER_AGENT)
+            .build()
+            .expect("failed to build the HTTP client")
+    })
+}
+
+async fn http_get_text(url: &str) -> Result<String, String> {
+    let response = http_client()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("Request failed with status {status}."));
+    }
+    Ok(body)
+}
+
+/// The stored Pixabay API key, if any.
+fn pixabay_key(app: &AppHandle) -> Option<String> {
+    let library = app.state::<Mutex<Library>>();
+    let library = library.lock().unwrap();
+    library
+        .settings
+        .get("pixabay_api_key")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// The category chips shown in Discover (kept in Rust as the source of truth).
+#[tauri::command]
+fn discover_categories() -> Vec<String> {
+    discover::CATEGORIES.iter().map(|c| c.to_string()).collect()
+}
+
+/// Searches a provider, honouring the 24-hour cache and the rate limiter.
+#[tauri::command]
+async fn discover_search(
+    app: AppHandle,
+    query: String,
+    source: Source,
+    category: String,
+    page: u32,
+) -> Result<DiscoverPage, String> {
+    let page = page.max(1);
+    let key = discover::cache_key(source, &query, &category, page);
+
+    if let Some(hit) = app
+        .state::<Mutex<Discover>>()
+        .lock()
+        .unwrap()
+        .cache
+        .get(&key)
+    {
+        return Ok(hit);
+    }
+
+    let wait = app.state::<Mutex<Discover>>().lock().unwrap().limiter(source).wait_time();
+    if !wait.is_zero() {
+        tokio::time::sleep(wait).await;
+    }
+
+    let url = match source {
+        Source::Wallhaven => discover::wallhaven_url(&query, &category, page),
+        Source::Pixabay => {
+            let api_key = pixabay_key(&app).ok_or_else(|| {
+                "Add a Pixabay API key in Settings to browse videos.".to_string()
+            })?;
+            discover::pixabay_url(&query, &category, page, &api_key)
+        }
+    };
+
+    let body = http_get_text(&url).await?;
+    let parsed = match source {
+        Source::Wallhaven => discover::parse_wallhaven(&body, page)?,
+        Source::Pixabay => discover::parse_pixabay(&body, page)?,
+    };
+
+    {
+        let state = app.state::<Mutex<Discover>>();
+        let mut state = state.lock().unwrap();
+        state.mark(source);
+        state.cache.put(&key, &parsed);
+    }
+
+    Ok(parsed)
+}
+
+/// Streams a remote asset into the library directory. The webview probes and
+/// thumbnails it afterwards, mirroring the local import flow.
+#[tauri::command]
+async fn discover_download(
+    app: AppHandle,
+    url: String,
+    kind: DiscoverKind,
+    title: String,
+    source: Source,
+    source_url: Option<String>,
+    author: Option<String>,
+) -> Result<DownloadedFile, String> {
+    let dir = app_data_dir(&app)?.join("wallpapers");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let ext = discover::extension_for(&url, kind);
+    let dest = dir.join(format!("{id}.{ext}"));
+
+    let mut response = http_client()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status {}.", response.status()));
+    }
+
+    {
+        let mut file = fs::File::create(&dest).map_err(|e| e.to_string())?;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| format!("Download failed: {e}"))?
+        {
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+        }
+        file.sync_all().map_err(|e| e.to_string())?;
+    }
+
+    Ok(DownloadedFile {
+        id,
+        file_path: dest.to_string_lossy().to_string(),
+        kind,
+        title,
+        source,
+        source_url,
+        author,
+    })
+}
+
 /* --------------------------------------------------------------------- main */
 
 fn main() {
@@ -202,6 +359,9 @@ fn main() {
             library_rename,
             library_delete,
             reveal_in_finder,
+            discover_categories,
+            discover_search,
+            discover_download,
             settings_get,
             settings_set
         ])
@@ -213,6 +373,7 @@ fn main() {
             let dir = app.path().app_data_dir()?;
             fs::create_dir_all(&dir)?;
             app.manage(Mutex::new(store::load(&dir)));
+            app.manage(Mutex::new(Discover::new(dir.join("cache").join("discover"))));
 
             let show = MenuItem::with_id(app, "show", "Show Driftwall", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Driftwall", true, None::<&str>)?;
