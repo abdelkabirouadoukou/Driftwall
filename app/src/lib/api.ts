@@ -52,6 +52,11 @@ export function libraryDelete(id: string): Promise<void> {
   return call<void>('library_delete', { id });
 }
 
+/** Reveals a file in Finder, selecting it. */
+export function revealInFinder(path: string): Promise<void> {
+  return call<void>('reveal_in_finder', { path });
+}
+
 /** Reads a persisted setting value, or `null` when unset. */
 export function settingsGet<T>(key: string): Promise<T | null> {
   return call<T | null>('settings_get', { key });

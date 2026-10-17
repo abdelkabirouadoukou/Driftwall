@@ -139,6 +139,34 @@ fn library_delete(
     persist(&app, &snapshot)
 }
 
+/// Reveals a file in the OS file manager, selecting it where supported.
+#[tauri::command]
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(&path);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(format!("/select,{path}"));
+        c
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            c.arg(parent);
+        }
+        c
+    };
+
+    cmd.status().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /* ----------------------------------------------------------------- settings */
 
 #[tauri::command]
@@ -173,6 +201,7 @@ fn main() {
             library_add,
             library_rename,
             library_delete,
+            reveal_in_finder,
             settings_get,
             settings_set
         ])
