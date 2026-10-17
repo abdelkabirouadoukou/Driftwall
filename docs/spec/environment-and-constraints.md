@@ -14,8 +14,13 @@ Captured from the operator's amendments. These constrain every later phase.
 - **Frontend:** React 19 + TypeScript + Vite (build target **`safari15`** so output runs on
   macOS 12's WebKit).
 - **Shell:** **Tauri v2** (Rust). Tray via `tauri::tray`; window/dock-mode control via
-  `ActivationPolicy`; persistence via `tauri-plugin-sql` (SQLite). Import/copy via
-  `tauri-plugin-dialog` + `tauri-plugin-fs`.
+  `ActivationPolicy`. Library persistence is owned by Rust: one `Mutex<Library>` in
+  managed state, serialised to `library.json` in the app data dir with atomic writes
+  (`app/src-tauri/src/store.rs`); media files live alongside it under UUID names.
+  Import/copy via `tauri-plugin-dialog` + `tauri-plugin-fs`.
+  (SQLite via `tauri-plugin-sql` was dropped in the Phase 1 fix: frontend connections
+  locked each other. A single Rust-owned `rusqlite` connection may return later if
+  queryable storage is needed.)
 - **Package manager:** **pnpm locally** (CI may use pnpm or bun). Repo is a pnpm workspace:
   `app/` (Tauri app) and `contracts/` (`@driftwall/contracts` shared types + JSON Schema).
 - **No full Xcode.** Host has **Command Line Tools only**; use `cargo`, `pnpm`, and

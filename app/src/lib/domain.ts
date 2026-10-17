@@ -1,8 +1,10 @@
 /**
  * Application-side domain types for Driftwall's local library.
  *
- * `WallpaperRecord` maps 1:1 to a row of the SQLite `wallpapers` table.
- * The package manifest types (`.dwpkg`) live in `@driftwall/contracts`.
+ * The Rust core owns the library as `library.json` (see
+ * `src-tauri/src/store.rs`); `WallpaperRecord` is the wire shape exchanged with
+ * the `library_*` Tauri commands. The package manifest types (`.dwpkg`) live in
+ * `@driftwall/contracts`.
  */
 
 export type WallpaperKind = 'static' | 'video';
@@ -16,8 +18,8 @@ export interface WallpaperRecord {
   file_path: string;
   /** Display title. */
   title: string;
-  /** JSON-encoded array of tag strings. */
-  tags: string;
+  /** Tag strings. */
+  tags: string[];
   /** Pixel width, when known. */
   width: number | null;
   /** Pixel height, when known. */

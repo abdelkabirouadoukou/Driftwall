@@ -1,10 +1,10 @@
 /**
- * Import/export side of the library (Tauri-dependent).
+ * Import side of the library (Tauri-dependent).
  *
- * Import flow: pick files -> validate format -> copy into the app data dir
- * under a UUID filename -> probe dimensions/duration + render a thumbnail ->
- * insert a row. Files that fail to decode are removed and reported. No
- * transcoding occurs.
+ * Flow: pick files -> validate format -> copy into the app data dir under a UUID
+ * filename -> probe dimensions/duration + render a thumbnail -> hand the
+ * metadata to Rust via `library_add`. Files that fail to decode are removed and
+ * reported. No transcoding occurs.
  */
 
 import { open } from '@tauri-apps/plugin-dialog';
@@ -18,16 +18,14 @@ import {
   rejectionMessage,
 } from './media.ts';
 import {
-  serializeTags,
   storedFileName,
   thumbnailFileName,
   titleFromPath,
   uuid,
 } from './library.ts';
-import { insertWallpaper, deleteWallpaperRow } from './db.ts';
+import * as api from './api.ts';
 import { ensureDirs, wallpapersDir, thumbnailsDir } from './paths.ts';
 import { probeMedia } from './probe.ts';
-import type { WallpaperRecord } from './domain.ts';
 
 export interface Rejection {
   path: string;
@@ -90,12 +88,12 @@ export async function importPaths(paths: readonly string[]): Promise<ImportSumma
         await writeFile(await join(tDir, thumbnailFileName(id)), probe.thumbnail);
       }
 
-      await insertWallpaper({
+      await api.libraryAdd({
         id,
         type: kind,
         file_path: dest,
         title: titleFromPath(src),
-        tags: serializeTags([]),
+        tags: [],
         width: probe.width,
         height: probe.height,
         duration: probe.duration,
@@ -112,14 +110,4 @@ export async function importPaths(paths: readonly string[]): Promise<ImportSumma
   }
 
   return { imported, rejected };
-}
-
-
-/** Deletes the DB row plus the copied media and thumbnail for a wallpaper. */
-export async function deleteWallpaper(item: WallpaperRecord): Promise<void> {
-  await deleteWallpaperRow(item.id);
-  await remove(item.file_path).catch(() => undefined);
-  await remove(await join(await thumbnailsDir(), thumbnailFileName(item.id))).catch(
-    () => undefined,
-  );
 }

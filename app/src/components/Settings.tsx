@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { getDockMode, setDockMode } from '../lib/api.ts';
 
 export default function Settings() {
   const [dock, setDock] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    invoke<boolean>('get_dock_mode')
+    getDockMode()
       .then((value) => setDock(value))
       .catch(() => undefined)
       .finally(() => setLoaded(true));
@@ -16,7 +16,7 @@ export default function Settings() {
     const next = !dock;
     setDock(next);
     try {
-      await invoke('set_dock_mode', { dock: next });
+      await setDockMode(next);
     } catch {
       setDock(!next);
     }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image as ImageIcon, Pencil, Plus, Trash2, Video } from 'lucide-react';
 import EmptyState from './EmptyState.tsx';
-import { listWallpapers, renameWallpaper, resolveThumbUrls } from '../lib/db.ts';
-import { deleteWallpaper, importWallpapers } from '../lib/importer.ts';
-import { parseTags } from '../lib/library.ts';
+import * as api from '../lib/api.ts';
+import { resolveThumbUrls } from '../lib/paths.ts';
+import { importWallpapers } from '../lib/importer.ts';
 import type { WallpaperRecord } from '../lib/domain.ts';
 
 export default function Library() {
@@ -13,7 +13,7 @@ export default function Library() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const rows = await listWallpapers();
+    const rows = await api.libraryList();
     setItems(rows);
     setThumbs(await resolveThumbUrls(rows.map((r) => r.id)));
   }, []);
@@ -48,13 +48,13 @@ export default function Library() {
     if (next == null) return;
     const clean = next.trim();
     if (!clean) return;
-    await renameWallpaper(item.id, clean);
+    await api.libraryRename(item.id, clean);
     await refresh();
   };
 
   const handleDelete = async (item: WallpaperRecord) => {
     if (!window.confirm(`Delete “${item.title}”? This removes the copied file.`)) return;
-    await deleteWallpaper(item);
+    await api.libraryDelete(item.id);
     await refresh();
   };
 
@@ -106,9 +106,9 @@ export default function Library() {
                     ? ` · ${Math.round(item.duration)}s`
                     : ''}
                 </span>
-                {parseTags(item.tags).length > 0 && (
+                {item.tags.length > 0 && (
                   <span className="tags">
-                    {parseTags(item.tags).map((tag) => (
+                    {item.tags.map((tag) => (
                       <span key={tag} className="tag">
                         {tag}
                       </span>

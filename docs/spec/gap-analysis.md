@@ -20,8 +20,8 @@ reused; Driftwall is an independent implementation.
 | Scaling modes | Not confirmed statically | fill / fit / stretch / center, per display | **Improved / new** |
 | Import formats | MP4, MOV, MKV, M4V, AVI | Same set + validation | Parity |
 | Codec path | AVFoundation hardware decode | AVFoundation + optional Metal/CI pipeline | Parity+ |
-| Library storage | UUID files + **CloudKit** + keyed archives | UUID content-addressed files + **local SQLite (GRDB)**; optional cloud later | **Improved** (local-first, queryable) |
-| Metadata model | CloudKit records only | `.dwpkg` manifest + SQLite index | **Improved** (open, portable) |
+| Library storage | UUID files + **CloudKit** + keyed archives | UUID media files + a small Rust-owned **`library.json`**; optional cloud later | **Improved** (local-first, portable) |
+| Metadata model | CloudKit records only | `.dwpkg` manifest + `library.json` index | **Improved** (open, portable) |
 | Thumbnails | Image cache observed | Generated thumbnail cache | Parity+ |
 | Package/share format | None (cloud-only) | `.dwpkg` (no DRM, no watermark) | **New** |
 | Power: pause on battery | `isBattryPause` | `PowerPolicy` | Parity |
@@ -52,7 +52,7 @@ reused; Driftwall is an independent implementation.
    measurable CPU/GPU reduction and <300 ms resume.
 2. **Loop quality:** explicit loop points + automated loop-quality check (no visible hitch over a
    30-min soak).
-3. **Data ownership:** open `.dwpkg` manifest + local SQLite; no lock-in, no DRM.
+3. **Data ownership:** open `.dwpkg` manifest + portable `library.json`; no lock-in, no DRM.
 4. **Automation:** dynamic rule engine (time/sun/weather/appearance/Focus/display/app).
 5. **Creation:** asset studio (trim/color/LUT/loop-finder) + backend AI suite with per-user caps.
 6. **Presentation:** scaling modes and per-display configuration.

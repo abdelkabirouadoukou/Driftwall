@@ -164,6 +164,8 @@ settings:
 
 importers:
 
+  .: {}
+
   app:
     dependencies:
       '@driftwall/contracts':
@@ -181,9 +183,6 @@ importers:
       '@tauri-apps/plugin-process':
         specifier: ^2.3.1
         version: 2.4.0
-      '@tauri-apps/plugin-sql':
-        specifier: ^2.4.1
-        version: 2.6.0
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
@@ -425,9 +424,6 @@ packages:
 
   '@tauri-apps/plugin-process@2.4.0':
     resolution: {integrity: sha512-GddrmsSLAYrLa/yTXlXK/YRDzUgYeeOnUXTbiyvJWkmI424RmDPD3FVLeqcon7rv6O6ZfhBilcrHWnSo7o6hIQ==}
-
-  '@tauri-apps/plugin-sql@2.6.0':
-    resolution: {integrity: sha512-UfP4p3Zwh6N7ODRMgnMgXSN6rfUxFo7YXHnRjX8L3Vx7i+IV0bh+r8puwv2OnGq04SLDZFY+LvotxN+pJdZ1Zg==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -891,10 +887,6 @@ snapshots:
       '@tauri-apps/api': 2.12.4
 
   '@tauri-apps/plugin-process@2.4.0':
-    dependencies:
-      '@tauri-apps/api': 2.12.4
-
-  '@tauri-apps/plugin-sql@2.6.0':
     dependencies:
       '@tauri-apps/api': 2.12.4
 

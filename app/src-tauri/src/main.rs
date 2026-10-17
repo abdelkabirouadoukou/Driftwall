@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod store;
+
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tauri::{
@@ -7,7 +11,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State,
 };
-use tauri_plugin_sql::{Migration, MigrationKind};
+
+use store::{Library, Wallpaper};
 
 /// Whether the app shows a Dock icon (`Regular`) or is menu-bar only (`Accessory`).
 struct DockMode(Mutex<bool>);
@@ -54,51 +59,132 @@ fn show_window(app: &AppHandle) {
     }
 }
 
-/// SQLite migrations. One statement per migration (the plugin executes each
-/// migration's SQL as a single statement).
-fn migrations() -> Vec<Migration> {
-    vec![
-        Migration {
-            version: 1,
-            description: "create_wallpapers_table",
-            sql: "CREATE TABLE IF NOT EXISTS wallpapers (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL CHECK (type IN ('static','video')),
-                file_path TEXT NOT NULL,
-                title TEXT NOT NULL,
-                tags TEXT NOT NULL DEFAULT '[]',
-                width INTEGER,
-                height INTEGER,
-                duration REAL,
-                created_at TEXT NOT NULL
-            );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "create_settings_table",
-            sql: "CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );",
-            kind: MigrationKind::Up,
-        },
-    ]
+/* ------------------------------------------------------------------ library */
+
+/// Returns the app data directory, creating it if necessary.
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
+
+/// Persists the given library snapshot to disk.
+fn persist(app: &AppHandle, library: &Library) -> Result<(), String> {
+    let dir = app_data_dir(app)?;
+    store::save(&dir, library).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn library_list(state: State<'_, Mutex<Library>>) -> Vec<Wallpaper> {
+    let mut wallpapers = state.lock().unwrap().wallpapers.clone();
+    wallpapers.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    wallpapers
+}
+
+#[tauri::command]
+fn library_add(
+    app: AppHandle,
+    state: State<'_, Mutex<Library>>,
+    wallpaper: Wallpaper,
+) -> Result<(), String> {
+    let snapshot = {
+        let mut library = state.lock().unwrap();
+        library.add(wallpaper);
+        library.clone()
+    };
+    persist(&app, &snapshot)
+}
+
+#[tauri::command]
+fn library_rename(
+    app: AppHandle,
+    state: State<'_, Mutex<Library>>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
+    let snapshot = {
+        let mut library = state.lock().unwrap();
+        if !library.rename(&id, &title) {
+            return Ok(());
+        }
+        library.clone()
+    };
+    persist(&app, &snapshot)
+}
+
+#[tauri::command]
+fn library_delete(
+    app: AppHandle,
+    state: State<'_, Mutex<Library>>,
+    id: String,
+) -> Result<(), String> {
+    let removed = {
+        let mut library = state.lock().unwrap();
+        library.remove(&id)
+    };
+
+    let Some(wallpaper) = removed else {
+        return Ok(());
+    };
+
+    if !wallpaper.file_path.is_empty() {
+        let _ = fs::remove_file(&wallpaper.file_path);
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        let thumbnail = dir.join("thumbnails").join(format!("{id}.thumb.png"));
+        let _ = fs::remove_file(thumbnail);
+    }
+
+    let snapshot = state.lock().unwrap().clone();
+    persist(&app, &snapshot)
+}
+
+/* ----------------------------------------------------------------- settings */
+
+#[tauri::command]
+fn settings_get(state: State<'_, Mutex<Library>>, key: String) -> Option<serde_json::Value> {
+    state.lock().unwrap().settings.get(&key).cloned()
+}
+
+#[tauri::command]
+fn settings_set(
+    app: AppHandle,
+    state: State<'_, Mutex<Library>>,
+    key: String,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let snapshot = {
+        let mut library = state.lock().unwrap();
+        library.settings.insert(key, value);
+        library.clone()
+    };
+    persist(&app, &snapshot)
+}
+
+/* --------------------------------------------------------------------- main */
 
 fn main() {
     tauri::Builder::default()
         .manage(DockMode(Mutex::new(true)))
-        .invoke_handler(tauri::generate_handler![get_dock_mode, set_dock_mode])
+        .invoke_handler(tauri::generate_handler![
+            get_dock_mode,
+            set_dock_mode,
+            library_list,
+            library_add,
+            library_rename,
+            library_delete,
+            settings_get,
+            settings_set
+        ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:driftwall.db", migrations())
-                .build(),
-        )
         .setup(|app| {
+            // Load (or create) the Rust-owned library and put it in managed state.
+            let dir = app.path().app_data_dir()?;
+            fs::create_dir_all(&dir)?;
+            app.manage(Mutex::new(store::load(&dir)));
+
             let show = MenuItem::with_id(app, "show", "Show Driftwall", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Driftwall", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;

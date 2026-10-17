@@ -34,10 +34,16 @@ plugin wiring), not copied.
   port 5173.
 - `src-tauri/src/main.rs`: system tray (template icon, Show/Quit), Dock-mode
   toggle (`Regular`/`Accessory` via `set_dock_mode`/`get_dock_mode`), hide on
-  close, reopen from Dock. SQLite migrations: `wallpapers`
-  (`id, type, file_path, title, tags, width, height, duration, created_at`) and
-  a small `settings` table.
-- Plugins: `dialog`, `fs`, `process`, `sql` (sqlite) — capabilities in
+  close, reopen from Dock. Library commands: `library_list`, `library_add`,
+  `library_rename`, `library_delete`, `settings_get`, `settings_set`.
+- `src-tauri/src/store.rs`: the library is a single Rust-owned `Mutex<Library>`
+  in managed state, serialised to `$APPDATA/library.json` (atomic: tmp → fsync →
+  rename, previous kept as `library.json.bak`; corrupt main recovers from backup
+  or is quarantined as `library.json.corrupt-<ts>`). Entry fields:
+  `id, type, file_path, title, tags[], width, height, duration, created_at`.
+  **Note:** SQLite (`tauri-plugin-sql`) was removed — see
+  [phase-1-fix-storage.md](./phase-1-fix-storage.md).
+- Plugins: `dialog`, `fs`, `process` — capabilities in
   `capabilities/default.json`.
 - UI: sidebar (Library, Settings), dark theme with the system font stack,
   empty states, wallpaper grid with rename/delete. Settings exposes the
@@ -59,14 +65,16 @@ plugin wiring), not copied.
 | Step | Command | Result |
 |---|---|---|
 | Install | `pnpm install` | ok (3 workspace projects) |
-| Unit tests | `pnpm --filter driftwall-app test` | **36 passed / 3 files** |
-| Frontend build | `pnpm --filter driftwall-app build` | ok (`dist/` emitted, ~239 kB js) |
+| Unit tests | `pnpm --filter driftwall-app test` | **43 passed / 4 files** |
+| Frontend build | `pnpm --filter driftwall-app build` | ok (`dist/` emitted, ~238 kB js) |
 | Rust check | `cargo check` (in `app/src-tauri`) | ok, no warnings |
+| Rust tests | `cargo test` (in `app/src-tauri`) | **8 passed** (store round-trip, atomic write, backup recovery, corrupt quarantine, concurrent access) |
 
 Tests cover manifest validation (valid video/static, bad UUID, absolute/`..`
 paths, bad sha256, empty files, duplicate tags, loop-on-static, non-positive
-loop end, unknown scale modes) and library logic (extension/media
-classification, filename derivation, tag (de)serialisation, UUID v4).
+loop end, unknown scale modes), library logic (extension/media classification,
+filename derivation, UUID v4), and the typed `api` wrapper (command wiring +
+not-in-Tauri guard).
 
 ## Not done (by design / next)
 

@@ -1,6 +1,6 @@
 /**
- * Pure helpers for the wallpaper library: file naming, title derivation,
- * tag (de)serialisation, and UUID generation.
+ * Pure helpers for the wallpaper library: file naming, title derivation, and
+ * UUID generation.
  *
  * Kept free of Tauri/DOM imports so they are trivially unit-testable.
  */
@@ -31,22 +31,6 @@ export function titleFromPath(path: string): string {
   const dot = base.lastIndexOf('.');
   const stem = dot > 0 ? base.slice(0, dot) : base;
   return sanitizeTitle(stem) || 'Untitled';
-}
-
-/** JSON-encodes a tag array, trimming blanks and dropping empties. */
-export function serializeTags(tags: readonly string[]): string {
-  return JSON.stringify(tags.map((t) => t.trim()).filter((t) => t.length > 0));
-}
-
-/** Parses a JSON-encoded tag array; returns `[]` on malformed input. */
-export function parseTags(raw: string): string[] {
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!Array.isArray(value)) return [];
-    return value.filter((t): t is string => typeof t === 'string');
-  } catch {
-    return [];
-  }
 }
 
 /** True when the path is accepted media (image or supported video). */

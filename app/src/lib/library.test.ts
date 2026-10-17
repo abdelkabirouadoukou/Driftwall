@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isAcceptedMedia,
-  parseTags,
   sanitizeTitle,
-  serializeTags,
   storedFileName,
   thumbnailFileName,
   titleFromPath,
@@ -53,21 +51,6 @@ describe('titleFromPath', () => {
 
   it('falls back to Untitled when nothing remains', () => {
     expect(titleFromPath('/')).toBe('Untitled');
-  });
-});
-
-describe('tags serialisation', () => {
-  it('round-trips', () => {
-    expect(parseTags(serializeTags(['a', 'b']))).toEqual(['a', 'b']);
-  });
-
-  it('drops blank tags', () => {
-    expect(serializeTags([' a ', '  ', '', 'b'])).toBe('["a","b"]');
-  });
-
-  it('returns [] on malformed input', () => {
-    expect(parseTags('not json')).toEqual([]);
-    expect(parseTags('{"a":1}')).toEqual([]);
   });
 });
 
