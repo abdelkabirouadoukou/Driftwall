@@ -110,4 +110,68 @@ describe('command wiring', () => {
     await api.setDockMode(false);
     expect(invoke).toHaveBeenCalledWith('set_dock_mode', { dock: false });
   });
+
+  it('revealInFinder sends the path', async () => {
+    enterTauri();
+    invoke.mockResolvedValue(undefined);
+    await api.revealInFinder('/data/wallpapers/abc.mp4');
+    expect(invoke).toHaveBeenCalledWith('reveal_in_finder', {
+      path: '/data/wallpapers/abc.mp4',
+    });
+  });
+
+  it('discoverCategories invokes discover_categories', async () => {
+    enterTauri();
+    invoke.mockResolvedValue(['Space']);
+    await expect(api.discoverCategories()).resolves.toEqual(['Space']);
+    expect(invoke).toHaveBeenCalledWith('discover_categories', undefined);
+  });
+
+  it('discoverSearch passes the search shape through', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({ items: [], page: 1, has_more: false });
+    await api.discoverSearch({
+      query: 'cats',
+      source: 'wallhaven',
+      category: 'Nature',
+      page: 2,
+    });
+    expect(invoke).toHaveBeenCalledWith('discover_search', {
+      query: 'cats',
+      source: 'wallhaven',
+      category: 'Nature',
+      page: 2,
+    });
+  });
+
+  it('discoverDownload flattens the item and camel-cases source_url', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({
+      id: 'x',
+      file_path: '/data/wallpapers/x.mp4',
+      kind: 'video',
+      title: 'Clip',
+      source: 'pixabay',
+    });
+    await api.discoverDownload({
+      item: {
+        id: 'pixabay-1',
+        source: 'pixabay',
+        kind: 'video',
+        title: 'Clip',
+        thumb_url: 'https://t/x.jpg',
+        full_url: 'https://cdn/x.mp4',
+        source_url: 'https://pixabay.com/videos/id-1/',
+        author: 'artist',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith('discover_download', {
+      url: 'https://cdn/x.mp4',
+      kind: 'video',
+      title: 'Clip',
+      source: 'pixabay',
+      sourceUrl: 'https://pixabay.com/videos/id-1/',
+      author: 'artist',
+    });
+  });
 });

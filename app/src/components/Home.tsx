@@ -24,9 +24,10 @@ const CATEGORIES = [
 interface Props {
   query: string;
   onNavigate: (view: View) => void;
+  onBrowseCategory: (category: string) => void;
 }
 
-export default function Home({ query, onNavigate }: Props) {
+export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
   const { toast } = useToast();
   const [items, setItems] = useState<WallpaperRecord[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -212,7 +213,7 @@ export default function Home({ query, onNavigate }: Props) {
             key={category}
             type="button"
             className="chip"
-            onClick={() => onNavigate('discover')}
+            onClick={() => onBrowseCategory(category)}
           >
             {category}
           </button>

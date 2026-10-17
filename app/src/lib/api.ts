@@ -8,7 +8,13 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { WallpaperRecord } from './domain.ts';
+import type {
+  DiscoverItem,
+  DiscoverPage,
+  DiscoverSource,
+  DownloadedFile,
+  WallpaperRecord,
+} from './domain.ts';
 
 /** Friendly, user-facing message for the "opened in a browser" case. */
 export const NOT_IN_TAURI_MESSAGE =
@@ -55,6 +61,36 @@ export function libraryDelete(id: string): Promise<void> {
 /** Reveals a file in Finder, selecting it. */
 export function revealInFinder(path: string): Promise<void> {
   return call<void>('reveal_in_finder', { path });
+}
+
+/** Category chips offered by Discover (source of truth lives in Rust). */
+export function discoverCategories(): Promise<string[]> {
+  return call<string[]>('discover_categories');
+}
+
+/** Searches a Discover provider for one page of results. */
+export function discoverSearch(args: {
+  query: string;
+  source: DiscoverSource;
+  category: string;
+  page: number;
+}): Promise<DiscoverPage> {
+  return call<DiscoverPage>('discover_search', args);
+}
+
+/** Streams a remote asset into the library directory (probe happens after). */
+export function discoverDownload(args: {
+  item: DiscoverItem;
+}): Promise<DownloadedFile> {
+  const { item } = args;
+  return call<DownloadedFile>('discover_download', {
+    url: item.full_url,
+    kind: item.kind,
+    title: item.title,
+    source: item.source,
+    sourceUrl: item.source_url ?? null,
+    author: item.author ?? null,
+  });
 }
 
 /** Reads a persisted setting value, or `null` when unset. */

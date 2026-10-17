@@ -20,6 +20,7 @@ export default function App() {
 function Shell() {
   const [view, setView] = useState<View>('home');
   const [query, setQuery] = useState('');
+  const [discoverCategory, setDiscoverCategory] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const inTauri = isTauri();
 
@@ -63,9 +64,22 @@ function Shell() {
         <main className="content">
           <div className="content-inner">
             {view === 'home' && (
-              <Home query={query} onNavigate={setView} />
+              <Home
+                query={query}
+                onNavigate={setView}
+                onBrowseCategory={(category) => {
+                  setDiscoverCategory(category);
+                  setView('discover');
+                }}
+              />
             )}
-            {view === 'discover' && <Discover query={query} />}
+            {view === 'discover' && (
+              <Discover
+                query={query}
+                category={discoverCategory}
+                onCategory={setDiscoverCategory}
+              />
+            )}
             {view === 'library' && <Library query={query} />}
             {view === 'displays' && <Displays />}
             {view === 'settings' && <Settings />}
