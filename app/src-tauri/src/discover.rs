@@ -73,6 +73,42 @@ pub enum DiscoverKind {
     Video,
 }
 
+/// A downloadable rendition of an item (e.g. Pixabay's small/medium/large
+/// encodes, or a Wallhaven "fast preview" fallback).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Rendition {
+    /// Stable key used by the quality selector (`original`, `preview`, `small`,
+    /// `medium`, `large`).
+    pub key: String,
+    /// Human label shown in the UI.
+    pub label: String,
+    pub url: String,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Byte size when the provider reports it (usually unknown).
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    /// Whether this is the default choice for the item.
+    #[serde(default)]
+    pub default: bool,
+}
+
+impl Rendition {
+    fn new(key: &str, label: &str, url: String, width: Option<u32>, height: Option<u32>) -> Self {
+        Self {
+            key: key.to_string(),
+            label: label.to_string(),
+            url,
+            width,
+            height,
+            size_bytes: None,
+            default: false,
+        }
+    }
+}
+
 /// A single browsable remote asset.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiscoverItem {
@@ -82,7 +118,7 @@ pub struct DiscoverItem {
     pub title: String,
     /// Small image URL for the grid (may be a video URL when no still exists).
     pub thumb_url: String,
-    /// Full-resolution asset to download.
+    /// Full-resolution asset to download (the default rendition's URL).
     pub full_url: String,
     #[serde(default)]
     pub width: Option<u32>,
@@ -94,6 +130,9 @@ pub struct DiscoverItem {
     pub author: Option<String>,
     #[serde(default)]
     pub source_url: Option<String>,
+    /// Selectable download renditions (best/default first).
+    #[serde(default)]
+    pub renditions: Vec<Rendition>,
 }
 
 /// One page of results for a search.
@@ -252,12 +291,13 @@ pub fn parse_wallhaven(body: &str, requested_page: u32) -> Result<DiscoverPage, 
                     &img.thumbs.small,
                     &full,
                 ]),
-                full_url: full,
+                full_url: full.clone(),
                 width: w,
                 height: h,
                 duration: None,
                 author: Some("Wallhaven".to_string()),
                 source_url: img.short_url.or_else(|| non_empty(&img.url)),
+                renditions: wallhaven_renditions(&full, &img.thumbs.large, w, h),
             }
         })
         .collect();
@@ -326,22 +366,24 @@ pub fn parse_pixabay(body: &str, requested_page: u32) -> Result<DiscoverPage, St
         .hits
         .into_iter()
         .filter_map(|video| {
-            let variant = pick_variant(&video.videos)?;
+            let renditions = pixabay_renditions(&video.videos);
+            let default = renditions.iter().find(|r| r.default).or_else(|| renditions.first())?;
             let thumb = picture_id_string(&video.picture_id)
                 .map(|pid| format!("https://i.vimeocdn.com/video/{pid}_640x360.jpg"))
-                .unwrap_or_else(|| variant.url.clone());
+                .unwrap_or_else(|| default.url.clone());
             Some(DiscoverItem {
                 id: format!("pixabay-{}", video.id),
                 source: Source::Pixabay,
                 kind: DiscoverKind::Video,
                 title: first_tag(&video.tags).unwrap_or_else(|| format!("Pixabay {}", video.id)),
                 thumb_url: thumb,
-                full_url: variant.url.clone(),
-                width: variant.width,
-                height: variant.height,
+                full_url: default.url.clone(),
+                width: default.width,
+                height: default.height,
                 duration: video.duration,
                 author: video.user,
                 source_url: non_empty(&video.page_url),
+                renditions,
             })
         })
         .collect();
@@ -354,19 +396,59 @@ pub fn parse_pixabay(body: &str, requested_page: u32) -> Result<DiscoverPage, St
     })
 }
 
-/// Prefers a ~1080p variant, falling back to smaller ones.
-fn pick_variant(videos: &PixabayVideos) -> Option<&PixabayVariant> {
-    let candidates = [
-        &videos.large,
-        &videos.medium,
-        &videos.small,
-        &videos.tiny,
+/// Builds Wallhaven renditions: the original file plus a lighter thumbnail
+/// "fast preview" fallback.
+fn wallhaven_renditions(
+    full: &str,
+    preview: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Vec<Rendition> {
+    let mut out = Vec::new();
+    if !full.is_empty() {
+        let mut original = Rendition::new("original", "Original", full.to_string(), width, height);
+        original.default = true;
+        out.push(original);
+    }
+    if !preview.is_empty() && preview != full {
+        out.push(Rendition::new(
+            "preview",
+            "Fast preview",
+            preview.to_string(),
+            None,
+            None,
+        ));
+    }
+    out
+}
+
+/// Builds Pixabay renditions (large/medium/small/tiny) and flags the encode
+/// closest to 1080p as the default.
+fn pixabay_renditions(videos: &PixabayVideos) -> Vec<Rendition> {
+    let variants = [
+        ("large", "Large", &videos.large),
+        ("medium", "Medium", &videos.medium),
+        ("small", "Small", &videos.small),
+        ("tiny", "Tiny", &videos.tiny),
     ];
-    candidates
+    let mut out: Vec<Rendition> = variants
         .into_iter()
-        .flatten()
-        .find(|v| v.width.map(|w| w >= 1280).unwrap_or(false))
-        .or_else(|| candidates.into_iter().flatten().next())
+        .filter_map(|(key, label, variant)| {
+            variant.as_ref().map(|v| {
+                Rendition::new(key, label, v.url.clone(), v.width, v.height)
+            })
+        })
+        .collect();
+
+    if let Some(index) = out
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, r)| r.width.map(|w| (i64::from(w) - 1920).abs()).unwrap_or(i64::MAX))
+        .map(|(i, _)| i)
+    {
+        out[index].default = true;
+    }
+    out
 }
 
 fn picture_id_string(value: &Option<serde_json::Value>) -> Option<String> {
@@ -701,6 +783,38 @@ mod tests {
         let page = parse_pixabay(PIXABAY_FIXTURE, 3).unwrap();
         // 3 * 24 = 72 > 60 total hits -> no more.
         assert!(!page.has_more);
+    }
+
+    #[test]
+    fn pixabay_exposes_size_renditions_with_a_1080p_default() {
+        let page = parse_pixabay(PIXABAY_FIXTURE, 1).unwrap();
+        let item = &page.items[0];
+        let keys: Vec<&str> = item.renditions.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, ["large", "medium", "small", "tiny"]);
+
+        let default = item.renditions.iter().find(|r| r.default).unwrap();
+        assert_eq!(default.key, "large");
+        assert_eq!(default.width, Some(1920));
+        // full_url mirrors the default rendition for backwards compatibility.
+        assert_eq!(item.full_url, default.url);
+
+        // The medium-only clip defaults to medium.
+        let second = &page.items[1];
+        assert_eq!(second.renditions.len(), 1);
+        assert!(second.renditions[0].default);
+        assert_eq!(second.renditions[0].key, "medium");
+    }
+
+    #[test]
+    fn wallhaven_offers_original_and_a_fast_preview() {
+        let page = parse_wallhaven(WALLHAVEN_FIXTURE, 1).unwrap();
+        let item = &page.items[0];
+        assert_eq!(item.renditions.len(), 2);
+        assert_eq!(item.renditions[0].key, "original");
+        assert!(item.renditions[0].default);
+        assert_eq!(item.renditions[0].width, Some(3840));
+        assert_eq!(item.renditions[1].key, "preview");
+        assert_eq!(item.renditions[1].url, "https://th.wallhaven.cc/lg/ab/abcdef.jpg");
     }
 
     #[test]

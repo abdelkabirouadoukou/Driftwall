@@ -7,11 +7,12 @@
  * a raw `TypeError`.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
   DiscoverItem,
   DiscoverPage,
   DiscoverSource,
+  DownloadProgress,
   DownloadedFile,
   WallpaperRecord,
 } from './domain.ts';

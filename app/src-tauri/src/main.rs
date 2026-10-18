@@ -1,20 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod discover;
+mod download;
 mod store;
 
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use tauri::{
+    ipc::Channel,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State,
 };
 
 use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, Source};
+use download::{DownloadProgress, Downloads, Phase};
 use store::{Library, Wallpaper};
 
 /// Whether the app shows a Dock icon (`Regular`) or is menu-bar only (`Accessory`).
@@ -201,6 +204,7 @@ fn http_client() -> &'static reqwest::Client {
     HTTP.get_or_init(|| {
         reqwest::Client::builder()
             .user_agent(discover::USER_AGENT)
+            .connect_timeout(download::CONNECT_TIMEOUT)
             .build()
             .expect("failed to build the HTTP client")
     })
@@ -295,11 +299,15 @@ async fn discover_search(
     Ok(parsed)
 }
 
-/// Streams a remote asset into the library directory. The webview probes and
-/// thumbnails it afterwards, mirroring the local import flow.
+/// Streams a remote asset into the library directory, reporting progress over
+/// `on_progress`. Bytes go to `<uuid>.part` and are atomically renamed once the
+/// transfer succeeds; the webview then probes and thumbnails it.
 #[tauri::command]
 async fn discover_download(
     app: AppHandle,
+    downloads: State<'_, Downloads>,
+    on_progress: Channel<DownloadProgress>,
+    id: String,
     url: String,
     kind: DiscoverKind,
     title: String,
@@ -307,43 +315,113 @@ async fn discover_download(
     source_url: Option<String>,
     author: Option<String>,
 ) -> Result<DownloadedFile, String> {
+    let emit = |progress: DownloadProgress| {
+        let _ = on_progress.send(progress);
+    };
+
+    emit(DownloadProgress::new(&id, Phase::Queued));
+
+    // Register before waiting for a slot so the download can be cancelled while
+    // it is still queued.
+    let token = downloads.register(&id);
+    let permit = downloads
+        .permits()
+        .acquire_owned()
+        .await
+        .map_err(|e| e.to_string())?;
+
     let dir = app_data_dir(&app)?.join("wallpapers");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let file_id = uuid::Uuid::new_v4().to_string();
     let ext = discover::extension_for(&url, kind);
-    let dest = dir.join(format!("{id}.{ext}"));
+    let dest = dir.join(format!("{file_id}.{ext}"));
+    let part = dir.join(format!("{file_id}.part"));
 
-    let mut response = http_client()
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Download failed with status {}.", response.status()));
-    }
+    let mut last_emit = Instant::now() - download::PROGRESS_INTERVAL;
+    let result = download::download_to_part(
+        http_client(),
+        &url,
+        &part,
+        &token,
+        &mut |done, total, speed| {
+            let now = Instant::now();
+            if now.duration_since(last_emit) >= download::PROGRESS_INTERVAL {
+                last_emit = now;
+                emit(DownloadProgress {
+                    id: id.clone(),
+                    bytes_done: done,
+                    bytes_total: total,
+                    speed_bps: speed,
+                    phase: Phase::Downloading,
+                    error: None,
+                });
+            }
+        },
+    )
+    .await;
 
-    {
-        let mut file = fs::File::create(&dest).map_err(|e| e.to_string())?;
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|e| format!("Download failed: {e}"))?
-        {
-            file.write_all(&chunk).map_err(|e| e.to_string())?;
+    let finished = |phase: Phase, bytes: u64, error: Option<String>| DownloadProgress {
+        id: id.clone(),
+        bytes_done: bytes,
+        bytes_total: (bytes > 0).then_some(bytes),
+        speed_bps: 0.0,
+        phase,
+        error,
+    };
+
+    match result {
+        Ok(bytes) => {
+            emit(finished(Phase::Processing, bytes, None));
+            if let Err(error) = fs::rename(&part, &dest) {
+                let _ = fs::remove_file(&part);
+                downloads.finish(&id);
+                drop(permit);
+                let message = format!("Could not finalise the file: {error}");
+                emit(DownloadProgress {
+                    id: id.clone(),
+                    bytes_done: 0,
+                    bytes_total: None,
+                    speed_bps: 0.0,
+                    phase: Phase::Error,
+                    error: Some(message.clone()),
+                });
+                return Err(message);
+            }
+            emit(finished(Phase::Done, bytes, None));
+            downloads.finish(&id);
+            drop(permit);
+            Ok(DownloadedFile {
+                id: file_id,
+                file_path: dest.to_string_lossy().to_string(),
+                kind,
+                title,
+                source,
+                source_url,
+                author,
+            })
         }
-        file.sync_all().map_err(|e| e.to_string())?;
+        Err(error) => {
+            let message = error.message();
+            emit(DownloadProgress {
+                id: id.clone(),
+                bytes_done: 0,
+                bytes_total: None,
+                speed_bps: 0.0,
+                phase: Phase::Error,
+                error: Some(message.clone()),
+            });
+            downloads.finish(&id);
+            drop(permit);
+            Err(message)
+        }
     }
+}
 
-    Ok(DownloadedFile {
-        id,
-        file_path: dest.to_string_lossy().to_string(),
-        kind,
-        title,
-        source,
-        source_url,
-        author,
-    })
+/// Cancels an in-flight or queued download.
+#[tauri::command]
+fn discover_cancel(downloads: State<'_, Downloads>, id: String) -> bool {
+    downloads.cancel(&id)
 }
 
 /* --------------------------------------------------------------------- main */
@@ -362,6 +440,7 @@ fn main() {
             discover_categories,
             discover_search,
             discover_download,
+            discover_cancel,
             settings_get,
             settings_set
         ])
@@ -374,6 +453,7 @@ fn main() {
             fs::create_dir_all(&dir)?;
             app.manage(Mutex::new(store::load(&dir)));
             app.manage(Mutex::new(Discover::new(dir.join("cache").join("discover"))));
+            app.manage(Downloads::new());
 
             let show = MenuItem::with_id(app, "show", "Show Driftwall", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Driftwall", true, None::<&str>)?;

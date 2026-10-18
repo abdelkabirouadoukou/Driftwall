@@ -44,6 +44,17 @@ export type DiscoverSource = 'wallhaven' | 'pixabay';
 /** Whether a discovered asset is a still image or a video. */
 export type DiscoverKind = 'image' | 'video';
 
+/** A downloadable rendition of a discovered item. */
+export interface Rendition {
+  key: string;
+  label: string;
+  url: string;
+  width?: number | null;
+  height?: number | null;
+  size_bytes?: number | null;
+  default?: boolean;
+}
+
 /** A browsable remote asset returned by `discover_search`. */
 export interface DiscoverItem {
   id: string;
@@ -57,7 +68,29 @@ export interface DiscoverItem {
   duration?: number | null;
   author?: string | null;
   source_url?: string | null;
+  renditions?: Rendition[];
 }
+
+/** Download lifecycle phase reported by the Rust engine. */
+export type DownloadPhase =
+  | 'queued'
+  | 'downloading'
+  | 'processing'
+  | 'done'
+  | 'error';
+
+/** A progress snapshot from the `download://` channel. */
+export interface DownloadProgress {
+  id: string;
+  bytes_done: number;
+  bytes_total: number | null;
+  speed_bps: number;
+  phase: DownloadPhase;
+  error?: string | null;
+}
+
+/** Preferred download quality (Settings + detail drawer). */
+export type DownloadQuality = 'small' | 'medium' | 'large';
 
 /** One page of Discover results. */
 export interface DiscoverPage {
