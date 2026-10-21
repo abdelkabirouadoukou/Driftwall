@@ -36,6 +36,59 @@ export interface WallpaperRecord {
   created_at: string;
 }
 
+/* --------------------------------------------------------------- engine */
+
+/**
+ * A rotation over several library wallpapers. Mirrors `engine::Playlist` in
+ * Rust (`src-tauri/src/engine.rs`) field-for-field.
+ */
+export interface Playlist {
+  /** Wallpaper ids to rotate through, in order (shuffled at runtime if `shuffle`). */
+  ids: string[];
+  /** Seconds between rotations (floored to 15s server-side). */
+  interval_secs: number;
+  /** Pick the next wallpaper at random instead of sequentially. */
+  shuffle: boolean;
+  /** Whether the rotation is currently running. */
+  enabled: boolean;
+}
+
+/** Live snapshot of the wallpaper engine and the machine's power state. */
+export interface EngineStatus {
+  /** Id of the wallpaper currently applied, if any. */
+  current_id: string | null;
+  /** Whether a live (video) wallpaper window is on screen right now. */
+  live_active: boolean;
+  /** Human-readable reason live playback is paused, or `null` if playing. */
+  paused_reason: string | null;
+  /** Whether the Mac is currently running on battery power. */
+  on_battery: boolean;
+  /** Battery percentage, when an internal battery is present. */
+  battery_percent: number | null;
+  /** Whether macOS Low Power Mode is on. */
+  low_power: boolean;
+}
+
+/** What the live wallpaper window should show right now, from `live_current`. */
+export interface LiveCurrent {
+  path: string;
+  playing: boolean;
+  reason: string | null;
+}
+
+/** Power policy settings, stored under the `power` settings key. */
+export interface PowerPolicy {
+  pause_on_battery: boolean;
+  battery_threshold: number;
+  pause_on_low_power: boolean;
+}
+
+export const DEFAULT_POWER_POLICY: PowerPolicy = {
+  pause_on_battery: false,
+  battery_threshold: 30,
+  pause_on_low_power: true,
+};
+
 /* ------------------------------------------------------------- discover */
 
 /**

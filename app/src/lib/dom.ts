@@ -19,3 +19,14 @@ export const LIBRARY_CHANGED_EVENT = 'driftwall:library-changed';
 export function notifyLibraryChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(LIBRARY_CHANGED_EVENT));
 }
+
+/**
+ * Fired on `window` whenever the applied wallpaper or rotation changes (set,
+ * stopped, restored, or a rotation saved/advanced), so Home/Library/Displays
+ * can refresh their "now playing" state without polling.
+ */
+export const WALLPAPER_CHANGED_EVENT = 'driftwall:wallpaper-changed';
+
+export function notifyWallpaperChanged(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(WALLPAPER_CHANGED_EVENT));
+}
