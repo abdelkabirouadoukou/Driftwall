@@ -14,6 +14,9 @@ import type {
   DiscoverSource,
   DownloadProgress,
   DownloadedFile,
+  EngineStatus,
+  LiveCurrent,
+  Playlist,
   Rendition,
   SearchOptions,
   SourceInfo,
@@ -143,4 +146,54 @@ export function getDockMode(): Promise<boolean> {
 /** Sets the Dock-mode preference. */
 export function setDockMode(dock: boolean): Promise<void> {
   return call<void>('set_dock_mode', { dock });
+}
+
+/* ----------------------------------------------------------------- engine */
+
+/** Applies a library wallpaper: sets it as the desktop picture, or starts it live. */
+export function wallpaperApply(id: string): Promise<void> {
+  return call<void>('wallpaper_apply', { id });
+}
+
+/** Stops live playback. The last still frame stays as the desktop picture. */
+export function wallpaperStop(): Promise<void> {
+  return call<void>('wallpaper_stop');
+}
+
+/** Restores the desktop picture that was in place before Driftwall ran. */
+export function wallpaperRestoreOriginal(): Promise<void> {
+  return call<void>('wallpaper_restore_original');
+}
+
+/** Reads the saved rotation (playlist) settings. */
+export function playlistGet(): Promise<Playlist> {
+  return call<Playlist>('playlist_get');
+}
+
+/**
+ * Saves rotation settings. When `applyNow` is true and the rotation is
+ * enabled, the first wallpaper in it is applied immediately.
+ */
+export function playlistSet(playlist: Playlist, applyNow = false): Promise<Playlist> {
+  return call<Playlist>('playlist_set', { playlist, applyNow });
+}
+
+/** Skips to the next wallpaper in the rotation right now. */
+export function playlistNext(): Promise<void> {
+  return call<void>('playlist_next');
+}
+
+/** Current engine + power snapshot (what's playing, battery state). */
+export function engineStatus(): Promise<EngineStatus> {
+  return call<EngineStatus>('engine_status');
+}
+
+/** What the live wallpaper window should show right now, or `null`. */
+export function liveCurrent(): Promise<LiveCurrent | null> {
+  return call<LiveCurrent | null>('live_current');
+}
+
+/** Re-checks battery/Low Power Mode immediately (after a policy change). */
+export function powerRefresh(): Promise<void> {
+  return call<void>('power_refresh');
 }
