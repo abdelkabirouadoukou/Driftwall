@@ -71,7 +71,10 @@ export interface EngineStatus {
 
 /** What the live wallpaper window should show right now, from `live_current`. */
 export interface LiveCurrent {
-  path: string;
+  /** Video file to play (absent for built-in scenes). */
+  path?: string;
+  /** Built-in scene id (see `lib/scenes.ts`), when a scene is showing. */
+  scene?: string;
   playing: boolean;
   reason: string | null;
 }

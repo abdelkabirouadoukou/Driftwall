@@ -202,3 +202,8 @@ export function powerRefresh(): Promise<void> {
 export function openMainWindow(view?: string): Promise<void> {
   return call<void>('open_main_window', { view: view ?? null });
 }
+
+/** Starts a built-in animated scene (see `lib/scenes.ts`) as the wallpaper. */
+export function wallpaperApplyScene(scene: string): Promise<void> {
+  return call<void>('wallpaper_apply_scene', { scene });
+}

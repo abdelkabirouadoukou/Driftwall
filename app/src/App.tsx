@@ -5,6 +5,7 @@ import Home from './components/Home.tsx';
 import Discover from './components/Discover.tsx';
 import Library from './components/Library.tsx';
 import Displays from './components/Displays.tsx';
+import Scenes from './components/Scenes.tsx';
 import Settings from './components/Settings.tsx';
 import MusicView, { MusicProvider } from './components/Music.tsx';
 import { DownloadsProvider } from './components/Downloads.tsx';
@@ -178,6 +179,7 @@ function Shell() {
               />
             )}
             {view === 'library' && <Library query={query} />}
+            {view === 'scenes' && <Scenes />}
             {view === 'music' && <MusicView />}
             {view === 'displays' && <Displays />}
             {view === 'settings' && <Settings />}

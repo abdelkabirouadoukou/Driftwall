@@ -9,6 +9,7 @@ import { isTauri } from '../lib/api.ts';
 import { resolveThumbUrls } from '../lib/paths.ts';
 import { LIBRARY_CHANGED_EVENT, WALLPAPER_CHANGED_EVENT, notifyWallpaperChanged } from '../lib/dom.ts';
 import { DEFAULT_INTERVAL_SECS, minutesToSecs, secsToMinutes } from '../lib/rotation.ts';
+import { sceneById, sceneIdFromCurrent } from '../lib/scenes.ts';
 import type { EngineStatus, Playlist, WallpaperRecord } from '../lib/domain.ts';
 
 interface MonitorInfo {
@@ -96,6 +97,9 @@ export default function Displays() {
     [items, status],
   );
 
+  const scene = sceneById(sceneIdFromCurrent(status?.current_id));
+  const hasCurrent = !!current || !!scene;
+
   const run = async (action: () => Promise<unknown>, success: string) => {
     try {
       await action();
@@ -152,14 +156,14 @@ export default function Displays() {
         </div>
         <div className="stack" style={{ gap: 6 }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-            {current ? current.title : 'Nothing playing'}
+            {current?.title ?? scene?.name ?? 'Nothing playing'}
           </h2>
-          {current &&
+          {hasCurrent &&
             (status?.paused_reason ? (
               <span className="paused-pill">Paused · {status.paused_reason}</span>
             ) : (
               <span className="current-pill">
-                {status?.live_active ? 'Playing live' : 'Current wallpaper'}
+                {scene ? 'Animated scene' : status?.live_active ? 'Playing live' : 'Current wallpaper'}
               </span>
             ))}
           {status && (
@@ -173,7 +177,7 @@ export default function Displays() {
             <button
               type="button"
               className="btn"
-              disabled={!current}
+              disabled={!hasCurrent}
               onClick={() => void run(() => api.wallpaperStop(), 'Stopped.')}
             >
               <Square size={14} aria-hidden="true" />

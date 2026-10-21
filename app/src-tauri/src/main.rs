@@ -600,6 +600,7 @@ fn main() {
             settings_get,
             settings_set,
             engine::wallpaper_apply,
+            engine::wallpaper_apply_scene,
             engine::wallpaper_stop,
             engine::wallpaper_restore_original,
             engine::playlist_get,

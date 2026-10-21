@@ -390,7 +390,13 @@ fn restart_scheduler(app: &AppHandle) {
 /// the battery watcher.
 pub fn start(app: &AppHandle) {
     if let Some(id) = setting(app, "engine_current").and_then(|v| v.as_str().map(String::from)) {
-        if let Some(w) = find_wallpaper(app, &id) {
+        if let Some(scene) = id.strip_prefix("scene:") {
+            let scene = scene.to_string();
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = apply_scene(&app2, &scene);
+            });
+        } else if let Some(w) = find_wallpaper(app, &id) {
             *app.state::<Engine>().current.lock().unwrap() = Some(id);
             if w.kind == WallpaperType::Video {
                 let app2 = app.clone();
@@ -424,6 +430,26 @@ pub async fn wallpaper_apply(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 /// Stops live playback (the last still stays as the desktop picture).
+/// Starts a built-in animated scene (drawn by the player, no file involved).
+#[tauri::command]
+pub async fn wallpaper_apply_scene(app: AppHandle, scene: String) -> Result<(), String> {
+    if scene.is_empty() || !scene.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Unknown scene.".into());
+    }
+    apply_scene(&app, &scene)
+}
+
+fn apply_scene(app: &AppHandle, scene: &str) -> Result<(), String> {
+    *app.state::<Engine>().current.lock().unwrap() = Some(format!("scene:{scene}"));
+    ensure_live_windows(app)?;
+    let _ = app.emit("live-load", json!({ "scene": scene }));
+    let _ = put_setting(app, "engine_current", json!(format!("scene:{scene}")));
+    let _ = app.emit("driftwall:wallpaper-changed", json!({ "from": "rust" }));
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || evaluate_power(&app2));
+    Ok(())
+}
+
 #[tauri::command]
 pub fn wallpaper_stop(app: AppHandle) {
     close_live_window(&app);
@@ -492,6 +518,10 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
 #[tauri::command]
 pub fn live_current(app: AppHandle) -> Option<Value> {
     let id = app.state::<Engine>().current.lock().unwrap().clone()?;
+    if let Some(scene) = id.strip_prefix("scene:") {
+        let reason = app.state::<Engine>().paused.lock().unwrap().clone();
+        return Some(json!({ "scene": scene, "playing": reason.is_none(), "reason": reason }));
+    }
     let w = find_wallpaper(&app, &id)?;
     if w.kind != WallpaperType::Video {
         return None;

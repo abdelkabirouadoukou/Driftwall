@@ -4,11 +4,12 @@ import {
   Images,
   Monitor,
   Music,
+  Sparkles,
   Settings as SettingsIcon,
   type LucideIcon,
 } from 'lucide-react';
 
-export type View = 'home' | 'discover' | 'library' | 'displays' | 'music' | 'settings';
+export type View = 'home' | 'discover' | 'library' | 'displays' | 'music' | 'scenes' | 'settings';
 
 export interface NavItem {
   id: View;
@@ -20,14 +21,15 @@ export interface NavItem {
   group: 'wallpapers' | 'media' | 'system';
 }
 
-/** Sidebar order doubles as the Cmd+1..Cmd+6 navigation order. */
+/** Sidebar order doubles as the Cmd+1..Cmd+7 navigation order. */
 export const NAV: NavItem[] = [
   { id: 'home', label: 'Home', icon: HomeIcon, shortcut: '1', group: 'wallpapers' },
   { id: 'discover', label: 'Discover', icon: Compass, shortcut: '2', group: 'wallpapers' },
   { id: 'library', label: 'Library', icon: Images, shortcut: '3', group: 'wallpapers' },
-  { id: 'music', label: 'Music', icon: Music, shortcut: '4', group: 'media' },
-  { id: 'displays', label: 'Displays', icon: Monitor, shortcut: '5', group: 'system' },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon, shortcut: '6', group: 'system' },
+  { id: 'scenes', label: 'Scenes', icon: Sparkles, shortcut: '4', group: 'wallpapers' },
+  { id: 'music', label: 'Music', icon: Music, shortcut: '5', group: 'media' },
+  { id: 'displays', label: 'Displays', icon: Monitor, shortcut: '6', group: 'system' },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon, shortcut: '7', group: 'system' },
 ];
 
 const GROUPS: { id: NavItem['group']; label: string }[] = [

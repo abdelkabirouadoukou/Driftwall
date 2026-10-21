@@ -14,6 +14,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Switch } from './Settings.tsx';
 import * as api from '../lib/api.ts';
 import { resolveThumbUrls } from '../lib/paths.ts';
+import { sceneById, sceneIdFromCurrent } from '../lib/scenes.ts';
 import { WALLPAPER_CHANGED_EVENT, bridgeWallpaperEvents, notifyWallpaperChanged } from '../lib/dom.ts';
 import { DEFAULT_POWER_POLICY, type EngineStatus, type PowerPolicy, type WallpaperRecord } from '../lib/domain.ts';
 import {
@@ -113,6 +114,8 @@ export default function TrayPanel() {
   };
 
   const current = status?.current_id ? items.find((i) => i.id === status.current_id) : undefined;
+  const scene = sceneById(sceneIdFromCurrent(status?.current_id));
+  const hasCurrent = !!current || !!scene;
   const recent = items
     .slice()
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -133,12 +136,12 @@ export default function TrayPanel() {
           {current && thumbs[current.id] ? <img src={thumbs[current.id]} alt="" /> : <MonitorPlay size={20} />}
         </div>
         <div className="stack" style={{ gap: 4, minWidth: 0 }}>
-          <span className="panel-title">{current ? current.title : 'Nothing playing'}</span>
-          {current &&
+          <span className="panel-title">{current?.title ?? scene?.name ?? 'Nothing playing'}</span>
+          {hasCurrent &&
             (status?.paused_reason ? (
               <span className="paused-pill">Paused · {status.paused_reason}</span>
             ) : (
-              <span className="current-pill">{status?.live_active ? 'Playing live' : 'Current'}</span>
+              <span className="current-pill">{scene ? 'Animated scene' : status?.live_active ? 'Playing live' : 'Current'}</span>
             ))}
           {status && (
             <span className="muted small">
@@ -150,7 +153,7 @@ export default function TrayPanel() {
         <button
           type="button"
           className="btn icon"
-          disabled={!current}
+          disabled={!hasCurrent}
           onClick={() => void run(() => api.wallpaperStop())}
           aria-label="Stop wallpaper"
           title="Stop"

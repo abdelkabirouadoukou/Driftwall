@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../lib/api.ts';
 import { assetUrl } from '../lib/paths.ts';
+import SceneCanvas from './SceneCanvas.tsx';
 
 /**
  * Renders inside the click-through `wallpaper-*` windows the Rust engine
@@ -16,6 +17,8 @@ import { assetUrl } from '../lib/paths.ts';
 export default function LivePlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [src, setSrc] = useState<string | null>(null);
+  // Built-in animated scene (instead of a video file), see lib/scenes.ts.
+  const [scene, setScene] = useState<string | null>(null);
   const [playing, setPlaying] = useState(true);
   // Fade the video in once it can show a frame, so there's never a black flash
   // over the still picture set behind it.
@@ -24,9 +27,11 @@ export default function LivePlayer() {
   useEffect(() => {
     let disposed = false;
 
-    const unlistenLoad = listen<{ path: string }>('live-load', (event) => {
+    const unlistenLoad = listen<{ path?: string; scene?: string }>('live-load', (event) => {
       if (disposed) return;
-      setSrc(assetUrl(event.payload.path));
+      const { path, scene: sceneId } = event.payload;
+      setScene(sceneId ?? null);
+      setSrc(!sceneId && path ? assetUrl(path) : null);
       setPlaying(true);
     });
     const unlistenState = listen<{ playing: boolean; reason: string | null }>(
@@ -42,7 +47,8 @@ export default function LivePlayer() {
       .liveCurrent()
       .then((current) => {
         if (disposed || !current) return;
-        setSrc(assetUrl(current.path));
+        setScene(current.scene ?? null);
+        setSrc(!current.scene && current.path ? assetUrl(current.path) : null);
         setPlaying(current.playing);
       })
       .catch(() => undefined);
@@ -69,6 +75,14 @@ export default function LivePlayer() {
       video.pause();
     }
   }, [playing, src]);
+
+  if (scene) {
+    return (
+      <div className="live-root">
+        <SceneCanvas sceneId={scene} fps={30} playing={playing} className="live-canvas" />
+      </div>
+    );
+  }
 
   if (!src) return <div className="live-root" />;
 

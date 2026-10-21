@@ -7,6 +7,7 @@ import * as api from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
 import { LIBRARY_CHANGED_EVENT, WALLPAPER_CHANGED_EVENT } from '../lib/dom.ts';
 import { importWallpapers } from '../lib/importer.ts';
+import { sceneById, sceneIdFromCurrent } from '../lib/scenes.ts';
 import type { EngineStatus, WallpaperRecord } from '../lib/domain.ts';
 import type { View } from './Sidebar.tsx';
 
@@ -100,6 +101,8 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
 
   const nowPlaying = status?.current_id ? items.find((i) => i.id === status.current_id) : undefined;
   const nowThumb = nowPlaying ? thumbs[nowPlaying.id] : undefined;
+  const scene = sceneById(sceneIdFromCurrent(status?.current_id));
+  const hasCurrent = !!nowPlaying || !!scene;
 
   const q = query.trim().toLowerCase();
   const recent = (q
@@ -133,15 +136,15 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
         </div>
         <div className="stack" style={{ gap: 6 }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-            {nowPlaying ? nowPlaying.title : 'Nothing playing yet'}
+            {nowPlaying?.title ?? scene?.name ?? 'Nothing playing yet'}
           </h2>
-          {nowPlaying ? (
+          {hasCurrent ? (
             <div className="row" style={{ gap: 8 }}>
               {status?.paused_reason ? (
                 <span className="paused-pill">Paused · {status.paused_reason}</span>
               ) : (
                 <span className="current-pill">
-                  {nowPlaying.type === 'video' ? 'Playing live' : 'Current wallpaper'}
+                  {scene ? 'Animated scene' : nowPlaying?.type === 'video' ? 'Playing live' : 'Current wallpaper'}
                 </span>
               )}
             </div>
