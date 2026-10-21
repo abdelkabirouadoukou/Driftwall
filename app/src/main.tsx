@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import './styles/theme.css';
 import App from './App.tsx';
 import LivePlayer from './components/LivePlayer.tsx';
+import TrayPanel from './components/TrayPanel.tsx';
 
 /**
  * The Rust engine opens one borderless `wallpaper-<n>` window per display
@@ -12,17 +13,24 @@ import LivePlayer from './components/LivePlayer.tsx';
  * app shell. Guarded for the plain-browser / test environment, where there
  * is no Tauri window to ask.
  */
-function isLiveWindow(): boolean {
-  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false;
+function windowLabel(): string {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return '';
   try {
-    return getCurrentWindow().label.startsWith('wallpaper');
+    return getCurrentWindow().label;
   } catch {
-    return false;
+    return '';
   }
+}
+
+function Root() {
+  const label = windowLabel();
+  if (label.startsWith('wallpaper')) return <LivePlayer />;
+  if (label === 'panel') return <TrayPanel />;
+  return <App />;
 }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isLiveWindow() ? <LivePlayer /> : <App />}
+    <Root />
   </StrictMode>,
 );

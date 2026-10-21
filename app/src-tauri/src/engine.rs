@@ -235,8 +235,51 @@ fn ensure_live_windows(app: &AppHandle) -> Result<(), String> {
         let window = builder.build().map_err(|e| e.to_string())?;
         // Clicks must reach the desktop (icons, Finder), not the video.
         let _ = window.set_ignore_cursor_events(true);
+        pin_to_desktop(&window);
     }
     Ok(())
+}
+
+/// Moves the window to the real desktop window level and marks it stationary
+/// on every Space. Plain "always on bottom" windows are hidden by Mission
+/// Control (three-finger swipe up) and Space switches; desktop-level windows
+/// stay visible, just like the system wallpaper. Icons sit one level above.
+#[cfg(target_os = "macos")]
+fn pin_to_desktop(window: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+
+    // kCGDesktopWindowLevel = CGWindowLevelForKey(kCGDesktopWindowLevelKey).
+    const DESKTOP_LEVEL: isize = -2_147_483_623;
+    // CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64) | FullScreenAuxiliary (256).
+    const BEHAVIOR: usize = 1 | (1 << 4) | (1 << 6) | (1 << 8);
+
+    let Ok(ptr) = window.ns_window() else { return };
+    let addr = ptr as usize;
+    let _ = window.run_on_main_thread(move || unsafe {
+        let ns = addr as *mut AnyObject;
+        if ns.is_null() {
+            return;
+        }
+        let _: () = msg_send![ns, setLevel: DESKTOP_LEVEL];
+        let _: () = msg_send![ns, setCollectionBehavior: BEHAVIOR];
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pin_to_desktop(_window: &tauri::WebviewWindow) {}
+
+/// Sets the video's thumbnail as the still desktop picture. macOS tints the
+/// menu bar from the desktop picture, so this keeps the bar matching the video
+/// and gives a sensible fallback if the live window is ever hidden.
+fn set_poster_picture(app: &AppHandle, wallpaper: &Wallpaper) {
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    let thumb = dir.join("thumbnails").join(format!("{}.thumb.png", wallpaper.id));
+    if !thumb.exists() {
+        return;
+    }
+    remember_original(app);
+    let _ = set_desktop_picture(&thumb.to_string_lossy());
 }
 
 fn emit_state(app: &AppHandle) {
@@ -286,12 +329,18 @@ async fn apply(app: &AppHandle, wallpaper: &Wallpaper) -> Result<(), String> {
             close_live_window(app);
         }
         WallpaperType::Video => {
+            let app2 = app.clone();
+            let video = wallpaper.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || set_poster_picture(&app2, &video))
+                .await;
             ensure_live_windows(app)?;
             let _ = app.emit("live-load", json!({ "path": wallpaper.file_path }));
         }
     }
     *app.state::<Engine>().current.lock().unwrap() = Some(wallpaper.id.clone());
     let _ = put_setting(app, "engine_current", json!(wallpaper.id));
+    // Lets every window (main, menu-bar panel) refresh its "now playing" state.
+    let _ = app.emit("driftwall:wallpaper-changed", json!({ "from": "rust" }));
     if wallpaper.kind == WallpaperType::Video {
         let app2 = app.clone();
         tauri::async_runtime::spawn_blocking(move || evaluate_power(&app2));

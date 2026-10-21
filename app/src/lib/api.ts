@@ -197,3 +197,8 @@ export function liveCurrent(): Promise<LiveCurrent | null> {
 export function powerRefresh(): Promise<void> {
   return call<void>('power_refresh');
 }
+
+/** Shows the main window (closing the menu-bar panel), optionally on a view. */
+export function openMainWindow(view?: string): Promise<void> {
+  return call<void>('open_main_window', { view: view ?? null });
+}

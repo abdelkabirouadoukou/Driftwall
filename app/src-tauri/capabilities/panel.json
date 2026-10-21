@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "panel",
+  "description": "Menu-bar control panel: events, paths and the app's own commands. No fs, dialog or process.",
+  "windows": ["panel"],
+  "permissions": ["core:default"]
+}

@@ -6,10 +6,12 @@ import Discover from './components/Discover.tsx';
 import Library from './components/Library.tsx';
 import Displays from './components/Displays.tsx';
 import Settings from './components/Settings.tsx';
+import MusicView, { MusicProvider } from './components/Music.tsx';
 import { DownloadsProvider } from './components/Downloads.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { isTauri } from './lib/api.ts';
-import { MAIN_SCROLL_ID, mainScrollElement } from './lib/dom.ts';
+import { listen } from '@tauri-apps/api/event';
+import { MAIN_SCROLL_ID, bridgeWallpaperEvents, mainScrollElement } from './lib/dom.ts';
 
 export default function App() {
   return (
@@ -25,6 +27,29 @@ function Shell() {
   const [discoverCategory, setDiscoverCategory] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const inTauri = isTauri();
+
+  // The menu-bar panel (and the Rust rotation timer) talk to this window.
+  useEffect(() => {
+    const stopBridge = bridgeWallpaperEvents();
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    if (inTauri) {
+      void listen<string>('driftwall-navigate', (event) => {
+        const target = NAV.find((n) => n.id === event.payload);
+        if (target) setView(target.id);
+      })
+        .then((fn) => {
+          if (disposed) fn();
+          else unlisten = fn;
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      disposed = true;
+      unlisten?.();
+      stopBridge();
+    };
+  }, [inTauri]);
 
   // Global shortcuts: Cmd+F focus search, Cmd+1..5 jump between views.
   useEffect(() => {
@@ -123,6 +148,7 @@ function Shell() {
 
   return (
     <DownloadsProvider onOpenLibrary={() => setView('library')}>
+    <MusicProvider showVideo={view === 'music'}>
     <div className="app">
       {/* Draggable areas: the title bar is transparent (overlay style), so the
           top edge and the sidebar header have to move the window themselves. */}
@@ -152,12 +178,14 @@ function Shell() {
               />
             )}
             {view === 'library' && <Library query={query} />}
+            {view === 'music' && <MusicView />}
             {view === 'displays' && <Displays />}
             {view === 'settings' && <Settings />}
           </div>
         </main>
       </div>
     </div>
+    </MusicProvider>
     </DownloadsProvider>
   );
 }

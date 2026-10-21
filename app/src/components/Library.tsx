@@ -17,6 +17,7 @@ import {
 import ContextMenu, { type MenuItem } from './ContextMenu.tsx';
 import EmptyState from './EmptyState.tsx';
 import Skeleton from './Skeleton.tsx';
+import PreviewVideo from './PreviewVideo.tsx';
 import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { isTauri } from '../lib/api.ts';
@@ -543,13 +544,12 @@ export default function Library({ query }: { query: string }) {
                   <span className="badge">
                     {isVideo ? <Video size={12} /> : <ImageIcon size={12} />}
                   </span>
-                  {previewing ? (
-                    <video src={assetUrl(item.file_path)} muted loop autoPlay playsInline />
-                  ) : src ? (
+                  {src ? (
                     <img src={src} alt="" loading="lazy" />
                   ) : (
                     <div className="tile-fallback" aria-hidden="true" />
                   )}
+                  {previewing && <PreviewVideo src={assetUrl(item.file_path)} />}
                   <div className="tile-overlay">
                     <span className="tile-sub">
                       {item.width && item.height ? `${item.width}×${item.height}` : '—'}

@@ -17,6 +17,9 @@ export default function LivePlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [playing, setPlaying] = useState(true);
+  // Fade the video in once it can show a frame, so there's never a black flash
+  // over the still picture set behind it.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -52,6 +55,10 @@ export default function LivePlayer() {
   }, []);
 
   useEffect(() => {
+    setReady(false);
+  }, [src]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (playing) {
@@ -69,7 +76,10 @@ export default function LivePlayer() {
     <div className="live-root">
       <video
         ref={videoRef}
+        className={ready ? 'ready' : undefined}
         src={src}
+        preload="auto"
+        onLoadedData={() => setReady(true)}
         autoPlay
         loop
         muted

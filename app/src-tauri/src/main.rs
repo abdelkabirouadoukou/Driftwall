@@ -8,14 +8,15 @@ mod store;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{
     ipc::Channel,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, SearchOptions, Source};
@@ -64,6 +65,79 @@ fn show_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+/* --------------------------------------------------------------- menu-bar panel */
+
+const PANEL_W: f64 = 340.0;
+const PANEL_H: f64 = 560.0;
+/// When the panel last hid itself on blur, so the click that caused the blur
+/// doesn't immediately re-open it.
+static PANEL_HIDDEN_AT: AtomicU64 = AtomicU64::new(0);
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+fn place_panel(window: &WebviewWindow, rect: tauri::Rect) {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let pos = rect.position.to_physical::<f64>(scale);
+    let size = rect.size.to_physical::<f64>(scale);
+    let x = (pos.x + size.width / 2.0 - PANEL_W * scale / 2.0).max(8.0);
+    let y = pos.y + size.height + 6.0 * scale;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// Small control box under the menu-bar icon: now playing, quick wallpapers,
+/// music and battery. Renders `TrayPanel.tsx` (label `panel`).
+fn toggle_panel(app: &AppHandle, rect: tauri::Rect) {
+    if let Some(window) = app.get_webview_window("panel") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            return;
+        }
+        if now_ms().saturating_sub(PANEL_HIDDEN_AT.load(Ordering::Relaxed)) < 300 {
+            return;
+        }
+        place_panel(&window, rect);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, "panel", WebviewUrl::App("index.html".into()))
+        .title("Driftwall")
+        .inner_size(PANEL_W, PANEL_H)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .visible_on_all_workspaces(true)
+        .build();
+    if let Ok(window) = built {
+        let hider = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Focused(false) = event {
+                PANEL_HIDDEN_AT.store(now_ms(), Ordering::Relaxed);
+                let _ = hider.hide();
+            }
+        });
+        place_panel(&window, rect);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Opens the main window (optionally on a view) and closes the menu-bar panel.
+#[tauri::command]
+fn open_main_window(app: AppHandle, view: Option<String>) {
+    if let Some(panel) = app.get_webview_window("panel") {
+        let _ = panel.hide();
+    }
+    show_window(&app);
+    if let Some(view) = view {
+        let _ = app.emit("driftwall-navigate", view);
     }
 }
 
@@ -510,6 +584,7 @@ fn main() {
         .manage(DockMode(Mutex::new(true)))
         .invoke_handler(tauri::generate_handler![
             get_dock_mode,
+            open_main_window,
             set_dock_mode,
             library_list,
             library_add,
@@ -558,7 +633,7 @@ fn main() {
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_window(app),
                     "quit" => app.exit(0),
@@ -568,10 +643,11 @@ fn main() {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
-                        show_window(tray.app_handle());
+                        toggle_panel(tray.app_handle(), rect);
                     }
                 })
                 .build(app)?;

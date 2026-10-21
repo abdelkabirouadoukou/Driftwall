@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import EmptyState from './EmptyState.tsx';
+import PreviewVideo from './PreviewVideo.tsx';
 import Skeleton from './Skeleton.tsx';
 import { ProgressBar, useDownloads } from './Downloads.tsx';
 import * as api from '../lib/api.ts';
@@ -427,9 +428,7 @@ function DiscoverTile({
           {item.kind === 'video' ? <Video size={12} /> : <ImageDown size={12} />}
           {item.kind === 'video' && item.duration ? <span>{Math.round(item.duration)}s</span> : null}
         </span>
-        {previewing ? (
-          <video src={item.preview_url ?? undefined} muted loop autoPlay playsInline />
-        ) : !thumbFailed ? (
+        {!thumbFailed ? (
           <img
             src={item.thumb_url}
             alt=""
@@ -442,6 +441,7 @@ function DiscoverTile({
             {item.kind === 'video' ? <Video size={22} /> : <SearchIcon size={22} />}
           </div>
         )}
+        {previewing && item.preview_url && <PreviewVideo src={item.preview_url} />}
         <div className="tile-overlay">
           <span className="tile-sub">{resolution}</span>
           <div className="tile-actions">
