@@ -74,12 +74,22 @@ export function luminanceOf(
 function probeImage(url: string): Promise<ProbeResult | null> {
   return new Promise((resolve) => {
     const img = new Image();
+    // The asset protocol is cross-origin; without this the canvas is tainted and
+    // toDataURL() throws inside onload, which used to leave this promise
+    // pending forever ("Adding to library" never finished).
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
+      let thumbnail: Uint8Array | null = null;
+      try {
+        thumbnail = drawThumbnail(img, img.naturalWidth, img.naturalHeight);
+      } catch {
+        thumbnail = null;
+      }
       resolve({
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        width: img.naturalWidth || null,
+        height: img.naturalHeight || null,
         duration: null,
-        thumbnail: drawThumbnail(img, img.naturalWidth, img.naturalHeight),
+        thumbnail,
       });
     };
     img.onerror = () => resolve(null);
@@ -167,6 +177,7 @@ async function captureBestFrame(video: HTMLVideoElement): Promise<Uint8Array | n
 function probeVideo(url: string): Promise<ProbeResult | null> {
   return new Promise((resolve) => {
     const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
     video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
@@ -182,6 +193,7 @@ function probeVideo(url: string): Promise<ProbeResult | null> {
 
     video.onloadedmetadata = () => {
       void captureBestFrame(video)
+        .catch(() => null)
         .then((thumbnail) =>
           finish({
             width: video.videoWidth || null,
@@ -197,10 +209,21 @@ function probeVideo(url: string): Promise<ProbeResult | null> {
   });
 }
 
-/** Probes a media file at an asset-protocol URL. */
+const PROBE_TIMEOUT_MS = 20000;
+
+/**
+ * Probes a media file at an asset-protocol URL. Never hangs: if the WebView
+ * fires neither a load nor an error event within {@link PROBE_TIMEOUT_MS}, the
+ * media is treated as undecodable (resolves `null`).
+ */
 export function probeMedia(
   url: string,
   kind: MediaKind,
 ): Promise<ProbeResult | null> {
-  return kind === 'video' ? probeVideo(url) : probeImage(url);
+  const work = kind === 'video' ? probeVideo(url) : probeImage(url);
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), PROBE_TIMEOUT_MS);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }

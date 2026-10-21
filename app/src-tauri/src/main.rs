@@ -2,6 +2,8 @@
 
 mod discover;
 mod download;
+mod engine;
+mod power;
 mod store;
 
 use std::fs;
@@ -521,7 +523,16 @@ fn main() {
             discover_cancel,
             open_external,
             settings_get,
-            settings_set
+            settings_set,
+            engine::wallpaper_apply,
+            engine::wallpaper_stop,
+            engine::wallpaper_restore_original,
+            engine::playlist_get,
+            engine::playlist_set,
+            engine::playlist_next,
+            engine::engine_status,
+            engine::live_current,
+            engine::power_refresh
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -533,6 +544,8 @@ fn main() {
             app.manage(Mutex::new(store::load(&dir)));
             app.manage(Mutex::new(Discover::new(dir.join("cache").join("discover"))));
             app.manage(Downloads::new());
+            app.manage(engine::Engine::new());
+            engine::start(app.handle());
 
             let show = MenuItem::with_id(app, "show", "Show Driftwall", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Driftwall", true, None::<&str>)?;
