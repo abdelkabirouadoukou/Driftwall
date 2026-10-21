@@ -22,10 +22,12 @@ import {
   thumbnailFileName,
   titleFromPath,
   uuid,
+  sanitizeTitle,
 } from './library.ts';
 import * as api from './api.ts';
 import { ensureDirs, wallpapersDir, thumbnailsDir } from './paths.ts';
 import { probeMedia } from './probe.ts';
+import type { DownloadedFile, WallpaperRecord } from './domain.ts';
 
 export interface Rejection {
   path: string;
@@ -110,4 +112,50 @@ export async function importPaths(paths: readonly string[]): Promise<ImportSumma
   }
 
   return { imported, rejected };
+}
+
+/**
+ * Finishes a Discover download: the file is already in the library directory,
+ * so we only probe it, render a thumbnail and register the record (carrying the
+ * source/attribution fields). Returns `null` and deletes the file when the
+ * media cannot be decoded.
+ */
+export async function importDownloaded(
+  file: DownloadedFile,
+): Promise<WallpaperRecord | null> {
+  await ensureDirs();
+  const tDir = await thumbnailsDir();
+  const kind = file.kind === 'video' ? 'video' : 'static';
+
+  try {
+    const probe = await probeMedia(convertFileSrc(file.file_path), kind);
+    if (!probe) {
+      await remove(file.file_path).catch(() => undefined);
+      return null;
+    }
+
+    if (probe.thumbnail) {
+      await writeFile(await join(tDir, thumbnailFileName(file.id)), probe.thumbnail);
+    }
+
+    const record: WallpaperRecord = {
+      id: file.id,
+      type: kind,
+      file_path: file.file_path,
+      title: sanitizeTitle(file.title) || 'Untitled',
+      tags: [],
+      width: probe.width,
+      height: probe.height,
+      duration: probe.duration,
+      source: file.source,
+      source_url: file.source_url ?? null,
+      author: file.author ?? null,
+      created_at: new Date().toISOString(),
+    };
+    await api.libraryAdd(record);
+    return record;
+  } catch (error) {
+    await remove(file.file_path).catch(() => undefined);
+    throw error;
+  }
 }

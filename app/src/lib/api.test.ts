@@ -4,10 +4,13 @@ const invoke = vi.fn();
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invoke(...args),
+  Channel: class {
+    onmessage: ((message: unknown) => void) | undefined;
+  },
 }));
 
 import * as api from './api.ts';
-import type { WallpaperRecord } from './domain.ts';
+import type { DiscoverItem, WallpaperRecord } from './domain.ts';
 
 function enterTauri() {
   vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
@@ -109,5 +112,162 @@ describe('command wiring', () => {
     invoke.mockResolvedValue(undefined);
     await api.setDockMode(false);
     expect(invoke).toHaveBeenCalledWith('set_dock_mode', { dock: false });
+  });
+
+  it('revealInFinder sends the path', async () => {
+    enterTauri();
+    invoke.mockResolvedValue(undefined);
+    await api.revealInFinder('/data/wallpapers/abc.mp4');
+    expect(invoke).toHaveBeenCalledWith('reveal_in_finder', {
+      path: '/data/wallpapers/abc.mp4',
+    });
+  });
+
+  it('discoverCategories invokes discover_categories', async () => {
+    enterTauri();
+    invoke.mockResolvedValue(['Space']);
+    await expect(api.discoverCategories()).resolves.toEqual(['Space']);
+    expect(invoke).toHaveBeenCalledWith('discover_categories', undefined);
+  });
+
+  it('discoverSearch passes the search shape through', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({ items: [], page: 1, has_more: false });
+    await api.discoverSearch({
+      query: 'cats',
+      source: 'wallhaven',
+      category: 'Nature',
+      page: 2,
+    });
+    expect(invoke).toHaveBeenCalledWith('discover_search', {
+      query: 'cats',
+      source: 'wallhaven',
+      category: 'Nature',
+      page: 2,
+    });
+  });
+
+  it('discoverDownload flattens the item and camel-cases source_url', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({
+      id: 'x',
+      file_path: '/data/wallpapers/x.mp4',
+      kind: 'video',
+      title: 'Clip',
+      source: 'pixabay-videos',
+    });
+    await api.discoverDownload({
+      item: {
+        id: 'pixabay-1',
+        source: 'pixabay-videos',
+        kind: 'video',
+        title: 'Clip',
+        thumb_url: 'https://t/x.jpg',
+        full_url: 'https://cdn/x.mp4',
+        source_url: 'https://pixabay.com/videos/id-1/',
+        author: 'artist',
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith(
+      'discover_download',
+      expect.objectContaining({
+        id: 'pixabay-1',
+        url: 'https://cdn/x.mp4',
+        kind: 'video',
+        title: 'Clip',
+        source: 'pixabay-videos',
+        sourceUrl: 'https://pixabay.com/videos/id-1/',
+        author: 'artist',
+      }),
+    );
+  });
+});
+
+describe('discover wiring', () => {
+  const item: DiscoverItem = {
+    id: 'pexels-video-1',
+    source: 'pexels-videos',
+    kind: 'video',
+    title: 'Calm sea',
+    thumb_url: 'https://x/t.jpg',
+    full_url: 'https://x/default.mp4',
+    source_url: 'https://www.pexels.com/video/calm-sea-1/',
+    author: 'Sam',
+  };
+
+  it('discoverSources invokes discover_sources', async () => {
+    enterTauri();
+    invoke.mockResolvedValue([]);
+    await api.discoverSources();
+    expect(invoke).toHaveBeenCalledWith('discover_sources', undefined);
+  });
+
+  it('discoverSearch forwards the sort and dark options', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({ items: [], page: 1, has_more: false });
+    await api.discoverSearch({
+      query: 'neon',
+      source: 'wallhaven',
+      category: 'Anime',
+      page: 2,
+      options: { sort: 'popular', dark: true },
+    });
+    expect(invoke).toHaveBeenCalledWith('discover_search', {
+      query: 'neon',
+      source: 'wallhaven',
+      category: 'Anime',
+      page: 2,
+      options: { sort: 'popular', dark: true },
+    });
+  });
+
+  it('discoverDownload uses the item id, the chosen rendition and a progress channel', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({ id: 'file' });
+    const seen: unknown[] = [];
+    await api.discoverDownload({
+      item,
+      rendition: { key: '540p', label: '540p', url: 'https://x/small.mp4' },
+      onProgress: (progress) => seen.push(progress),
+    });
+
+    const [command, args] = invoke.mock.calls[0] as [string, Record<string, unknown>];
+    expect(command).toBe('discover_download');
+    expect(args).toMatchObject({
+      id: 'pexels-video-1',
+      url: 'https://x/small.mp4',
+      kind: 'video',
+      title: 'Calm sea',
+      source: 'pexels-videos',
+      sourceUrl: 'https://www.pexels.com/video/calm-sea-1/',
+      author: 'Sam',
+    });
+
+    // The channel handed to Rust feeds the caller's callback.
+    const channel = args.onProgress as { onmessage?: (m: unknown) => void };
+    channel.onmessage?.({ id: 'pexels-video-1', phase: 'downloading' });
+    expect(seen).toEqual([{ id: 'pexels-video-1', phase: 'downloading' }]);
+  });
+
+  it('discoverDownload falls back to the item URL without a rendition', async () => {
+    enterTauri();
+    invoke.mockResolvedValue({ id: 'file' });
+    await api.discoverDownload({ item });
+    const args = invoke.mock.calls[0]![1] as Record<string, unknown>;
+    expect(args.url).toBe('https://x/default.mp4');
+  });
+
+  it('discoverDownload rejects outside Tauri without invoking', async () => {
+    await expect(api.discoverDownload({ item })).rejects.toBeInstanceOf(api.NotInTauriError);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('discoverCancel and openExternal send their arguments', async () => {
+    enterTauri();
+    invoke.mockResolvedValue(true);
+    await api.discoverCancel('abc');
+    expect(invoke).toHaveBeenCalledWith('discover_cancel', { id: 'abc' });
+    await api.openExternal('https://www.pexels.com');
+    expect(invoke).toHaveBeenCalledWith('open_external', { url: 'https://www.pexels.com' });
   });
 });

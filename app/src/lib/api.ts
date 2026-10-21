@@ -7,8 +7,18 @@
  * a raw `TypeError`.
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import type { WallpaperRecord } from './domain.ts';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import type {
+  DiscoverItem,
+  DiscoverPage,
+  DiscoverSource,
+  DownloadProgress,
+  DownloadedFile,
+  Rendition,
+  SearchOptions,
+  SourceInfo,
+  WallpaperRecord,
+} from './domain.ts';
 
 /** Friendly, user-facing message for the "opened in a browser" case. */
 export const NOT_IN_TAURI_MESSAGE =
@@ -50,6 +60,69 @@ export function libraryRename(id: string, title: string): Promise<void> {
 /** Removes a wallpaper and its copied media + thumbnail files. */
 export function libraryDelete(id: string): Promise<void> {
   return call<void>('library_delete', { id });
+}
+
+/** Reveals a file in Finder, selecting it. */
+export function revealInFinder(path: string): Promise<void> {
+  return call<void>('reveal_in_finder', { path });
+}
+
+/** Category chips offered by Discover (source of truth lives in Rust). */
+export function discoverCategories(): Promise<string[]> {
+  return call<string[]>('discover_categories');
+}
+
+/** Every Discover source with its capabilities and saved-key state. */
+export function discoverSources(): Promise<SourceInfo[]> {
+  return call<SourceInfo[]>('discover_sources');
+}
+
+/** Searches a Discover provider for one page of results. */
+export function discoverSearch(args: {
+  query: string;
+  source: DiscoverSource;
+  category: string;
+  page: number;
+  options?: SearchOptions;
+}): Promise<DiscoverPage> {
+  return call<DiscoverPage>('discover_search', args);
+}
+
+/**
+ * Streams a remote asset into the library directory (probe happens after).
+ * `onProgress` receives live byte counts, speed and phase from the Rust engine;
+ * `item.id` doubles as the download id used by {@link discoverCancel}.
+ */
+export function discoverDownload(args: {
+  item: DiscoverItem;
+  /** Quality to fetch; defaults to the item's default rendition. */
+  rendition?: Rendition | null;
+  onProgress?: (progress: DownloadProgress) => void;
+}): Promise<DownloadedFile> {
+  if (!isTauri()) return Promise.reject(new NotInTauriError());
+  const { item, rendition, onProgress } = args;
+  const channel = new Channel<DownloadProgress>();
+  if (onProgress) channel.onmessage = onProgress;
+  return invoke<DownloadedFile>('discover_download', {
+    id: item.id,
+    url: rendition?.url ?? item.full_url,
+    kind: item.kind,
+    title: item.title,
+    source: item.source,
+    sourceUrl: item.source_url ?? null,
+    author: item.author ?? null,
+    onProgress: channel,
+  });
+}
+
+/** Cancels an in-flight or queued download by id. */
+export function discoverCancel(id: string): Promise<boolean> {
+  return call<boolean>('discover_cancel', { id });
+}
+
+/** Opens an https link in the default browser. */
+export function openExternal(url: string): Promise<void> {
+  return call<void>('open_external', { url });
 }
 
 /** Reads a persisted setting value, or `null` when unset. */
