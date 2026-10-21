@@ -10,15 +10,21 @@ import { CheckCircle2, X, XCircle } from 'lucide-react';
 
 export type ToastKind = 'info' | 'error';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: number;
   text: string;
   kind: ToastKind;
+  action?: ToastAction;
 }
 
 interface ToastApi {
   /** Show a transient toast. `kind` defaults to 'info'. */
-  toast: (text: string, kind?: ToastKind) => void;
+  toast: (text: string, kind?: ToastKind, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -28,12 +34,13 @@ let nextId = 0;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
 
-  const toast = useCallback((text: string, kind: ToastKind = 'info') => {
+  const toast = useCallback((text: string, kind: ToastKind = 'info', action?: ToastAction) => {
     const id = nextId++;
-    setItems((prev) => [...prev, { id, text, kind }]);
+    setItems((prev) => [...prev, { id, text, kind, action }]);
+    // Toasts with an action stay a little longer so there is time to use it.
     window.setTimeout(() => {
       setItems((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, action ? 7000 : 4000);
   }, []);
 
   return (
@@ -49,6 +56,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             )}
             <span className="small">{item.text}</span>
             <span className="spacer" />
+            {item.action && (
+              <button
+                type="button"
+                className="toast-action"
+                onClick={() => {
+                  item.action?.onClick();
+                  setItems((prev) => prev.filter((t) => t.id !== item.id));
+                }}
+              >
+                {item.action.label}
+              </button>
+            )}
             <button
               type="button"
               className="btn icon ghost"

@@ -5,6 +5,7 @@ import Skeleton from './Skeleton.tsx';
 import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
+import { LIBRARY_CHANGED_EVENT } from '../lib/dom.ts';
 import { importWallpapers } from '../lib/importer.ts';
 import type { WallpaperRecord } from '../lib/domain.ts';
 import type { View } from './Sidebar.tsx';
@@ -52,6 +53,23 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
       cancelled = true;
     };
   }, [toast]);
+
+  // A Discover download can finish while this view is open.
+  useEffect(() => {
+    const onChanged = () => {
+      void (async () => {
+        try {
+          const rows = await api.libraryList();
+          setItems(rows);
+          setThumbs(await resolveThumbUrls(rows.map((r) => r.id)));
+        } catch {
+          /* keep the current list */
+        }
+      })();
+    };
+    window.addEventListener(LIBRARY_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, onChanged);
+  }, []);
 
   const handleImport = async () => {
     setBusy(true);

@@ -26,7 +26,7 @@ export interface WallpaperRecord {
   height: number | null;
   /** Duration in seconds for videos, else null. */
   duration: number | null;
-  /** Origin source when imported from Discover (`wallhaven` / `pixabay`). */
+  /** Origin source when imported from Discover (e.g. `wallhaven`, `pexels-videos`). */
   source?: string | null;
   /** Attribution page for the original asset. */
   source_url?: string | null;
@@ -38,8 +38,43 @@ export interface WallpaperRecord {
 
 /* ------------------------------------------------------------- discover */
 
-/** Provider an item was discovered from. */
-export type DiscoverSource = 'wallhaven' | 'pixabay';
+/**
+ * Provider an item was discovered from. These ids are stable: they are stored
+ * on library entries as attribution. (`pixabay` was the id of Pixabay videos in
+ * earlier builds and may still appear on old library entries.)
+ */
+export type DiscoverSource =
+  | 'wallhaven'
+  | 'pexels'
+  | 'bing'
+  | 'nasa'
+  | 'pixabay-videos'
+  | 'pexels-videos';
+
+/** Result ordering for providers that support it. */
+export type DiscoverSort = 'relevance' | 'popular' | 'latest' | 'random';
+
+/** Optional refinements chosen in the Discover toolbar. */
+export interface SearchOptions {
+  sort: DiscoverSort;
+  /** Prefer dark imagery (great for OLED screens). */
+  dark: boolean;
+}
+
+/** What a source can do and whether its API key is saved (from Rust). */
+export interface SourceInfo {
+  id: DiscoverSource;
+  provider: string;
+  kind: DiscoverKind;
+  /** Settings entry holding this source's API key, when it has one. */
+  key_setting: string | null;
+  /** Browsing fails without a key. */
+  key_required: boolean;
+  /** A key is currently saved. */
+  has_key: boolean;
+  supports_search: boolean;
+  supports_sort: boolean;
+}
 
 /** Whether a discovered asset is a still image or a video. */
 export type DiscoverKind = 'image' | 'video';
@@ -63,6 +98,8 @@ export interface DiscoverItem {
   title: string;
   thumb_url: string;
   full_url: string;
+  /** Small clip for hover previews of videos (never the full file). */
+  preview_url?: string | null;
   width?: number | null;
   height?: number | null;
   duration?: number | null;
@@ -88,9 +125,6 @@ export interface DownloadProgress {
   phase: DownloadPhase;
   error?: string | null;
 }
-
-/** Preferred download quality (Settings + detail drawer). */
-export type DownloadQuality = 'small' | 'medium' | 'large';
 
 /** One page of Discover results. */
 export interface DiscoverPage {

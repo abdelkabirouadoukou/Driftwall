@@ -1,12 +1,37 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { Eye, EyeOff, FolderOpen, Trash2 } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, FolderOpen, Trash2 } from 'lucide-react';
 import { useToast } from './Toast.tsx';
 import Skeleton from './Skeleton.tsx';
 import * as api from '../lib/api.ts';
 import { wallpapersDir } from '../lib/paths.ts';
 
-const PIXABAY_KEY = 'pixabay_api_key';
+/** Sources that use an API key you create yourself (stored locally). */
+const KEY_SOURCES: {
+  setting: string;
+  label: string;
+  desc: string;
+  keyUrl: string;
+}[] = [
+  {
+    setting: 'pexels_api_key',
+    label: 'Pexels',
+    desc: 'Unlocks Pexels photos and videos. Free and instant; 200 requests an hour.',
+    keyUrl: 'https://www.pexels.com/api/',
+  },
+  {
+    setting: 'pixabay_api_key',
+    label: 'Pixabay',
+    desc: 'Unlocks Pixabay animated loops. Free after signing up.',
+    keyUrl: 'https://pixabay.com/api/docs/',
+  },
+  {
+    setting: 'nasa_api_key',
+    label: 'NASA (optional)',
+    desc: 'APOD works without one using NASA’s shared demo key (about 30 requests an hour). Your own key lifts that.',
+    keyUrl: 'https://api.nasa.gov/',
+  },
+];
 
 function Switch({
   on,
@@ -67,23 +92,17 @@ export default function Settings() {
   const { toast } = useToast();
   const [loaded, setLoaded] = useState(false);
   const [dock, setDock] = useState(true);
-  const [key, setKey] = useState('');
-  const [savedKey, setSavedKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
   const [libraryPath, setLibraryPath] = useState('');
   const [version, setVersion] = useState('');
 
   useEffect(() => {
     void (async () => {
       try {
-        const [dockMode, storedKey, dir] = await Promise.all([
+        const [dockMode, dir] = await Promise.all([
           api.getDockMode().catch(() => true),
-          api.settingsGet<string>(PIXABAY_KEY).catch(() => null),
           wallpapersDir().catch(() => ''),
         ]);
         setDock(dockMode);
-        setSavedKey(storedKey ?? '');
-        setKey(storedKey ?? '');
         setLibraryPath(dir);
       } finally {
         setLoaded(true);
@@ -103,37 +122,12 @@ export default function Settings() {
     }
   };
 
-  const saveKey = async () => {
-    const clean = key.trim();
-    try {
-      await api.settingsSet(PIXABAY_KEY, clean);
-      setSavedKey(clean);
-      setKey(clean);
-      toast(clean ? 'Pixabay key saved.' : 'Pixabay key cleared.');
-    } catch {
-      toast('Could not save the key', 'error');
-    }
-  };
-
-  const clearKey = async () => {
-    setKey('');
-    try {
-      await api.settingsSet(PIXABAY_KEY, '');
-      setSavedKey('');
-      toast('Pixabay key cleared.');
-    } catch {
-      toast('Could not clear the key', 'error');
-    }
-  };
-
   const revealLibrary = () => {
     if (!libraryPath) return;
     void api.revealInFinder(libraryPath).catch(() => {
       toast('Could not open the library folder', 'error');
     });
   };
-
-  const dirty = key.trim() !== savedKey;
 
   return (
     <section aria-label="Settings">
@@ -166,60 +160,20 @@ export default function Settings() {
 
       <Section title="Sources">
         <Row
-          title="Pixabay API key"
-          desc={
-            <>
-              Needed for Pixabay video search. Stored locally in your library —
-              never sent anywhere except Pixabay. Create a free key at
-              pixabay.com/api/docs.
-            </>
-          }
-        >
-          <div className="row" style={{ gap: 8 }}>
-            <input
-              className="setting-input"
-              type={showKey ? 'text' : 'password'}
-              value={key}
-              placeholder="Paste your Pixabay key"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(e) => setKey(e.target.value)}
-              aria-label="Pixabay API key"
-            />
-            <button
-              type="button"
-              className="btn icon"
-              onClick={() => setShowKey((v) => !v)}
-              aria-label={showKey ? 'Hide key' : 'Show key'}
-            >
-              {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-            <button
-              type="button"
-              className="btn primary"
-              onClick={saveKey}
-              disabled={!dirty}
-            >
-              Save
-            </button>
-            {savedKey && (
-              <button
-                type="button"
-                className="btn icon ghost"
-                onClick={clearKey}
-                aria-label="Clear Pixabay key"
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
-          </div>
-        </Row>
-        <Row
           title="Wallhaven"
-          desc="No key required. Only SFW results are ever requested."
+          desc="Gaming, anime and dark art. No key needed; only SFW results are ever requested."
         >
           <span className="muted small">Built in</span>
         </Row>
+        <Row
+          title="Bing Daily"
+          desc="A fresh photo each day from Bing’s unofficial feed. No key needed."
+        >
+          <span className="muted small">Built in</span>
+        </Row>
+        {KEY_SOURCES.map((source) => (
+          <KeyRow key={source.setting} {...source} />
+        ))}
       </Section>
 
       <Section title="Library">
@@ -280,4 +234,100 @@ function ellipsize(value: string, max: number): string {
   const head = value.slice(0, Math.ceil(max / 2) - 1);
   const tail = value.slice(-Math.floor(max / 2) + 1);
   return `${head}…${tail}`;
+}
+
+/** One API key: stored locally, masked, never sent anywhere but its provider. */
+function KeyRow({
+  setting,
+  label,
+  desc,
+  keyUrl,
+}: {
+  setting: string;
+  label: string;
+  desc: string;
+  keyUrl: string;
+}) {
+  const { toast } = useToast();
+  const [value, setValue] = useState('');
+  const [saved, setSaved] = useState('');
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    void api
+      .settingsGet<string>(setting)
+      .then((stored) => {
+        setSaved(stored ?? '');
+        setValue(stored ?? '');
+      })
+      .catch(() => undefined);
+  }, [setting]);
+
+  const write = async (next: string, message: string) => {
+    try {
+      await api.settingsSet(setting, next);
+      setSaved(next);
+      setValue(next);
+      toast(message);
+    } catch {
+      toast(`Could not update the ${label} key`, 'error');
+    }
+  };
+
+  return (
+    <Row
+      title={`${label} API key`}
+      desc={
+        <>
+          {desc}{' '}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => void api.openExternal(keyUrl).catch(() => undefined)}
+          >
+            Get a free key <ExternalLink size={11} aria-hidden="true" />
+          </button>
+        </>
+      }
+    >
+      <div className="row" style={{ gap: 8 }}>
+        <input
+          className="setting-input"
+          type={show ? 'text' : 'password'}
+          value={value}
+          placeholder={saved ? 'Key saved' : 'Paste your key'}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label={`${label} API key`}
+        />
+        <button
+          type="button"
+          className="btn icon"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? 'Hide key' : 'Show key'}
+        >
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => void write(value.trim(), `${label} key ${value.trim() ? 'saved' : 'cleared'}.`)}
+          disabled={value.trim() === saved}
+        >
+          Save
+        </button>
+        {saved && (
+          <button
+            type="button"
+            className="btn icon ghost"
+            onClick={() => void write('', `${label} key cleared.`)}
+            aria-label={`Clear ${label} key`}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+    </Row>
+  );
 }

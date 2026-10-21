@@ -6,6 +6,7 @@ import Discover from './components/Discover.tsx';
 import Library from './components/Library.tsx';
 import Displays from './components/Displays.tsx';
 import Settings from './components/Settings.tsx';
+import { DownloadsProvider } from './components/Downloads.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { isTauri } from './lib/api.ts';
 import { MAIN_SCROLL_ID, mainScrollElement } from './lib/dom.ts';
@@ -121,7 +122,12 @@ function Shell() {
   }
 
   return (
+    <DownloadsProvider onOpenLibrary={() => setView('library')}>
     <div className="app">
+      {/* Draggable areas: the title bar is transparent (overlay style), so the
+          top edge and the sidebar header have to move the window themselves. */}
+      <div className="drag-top" data-tauri-drag-region />
+      <div className="drag-side" data-tauri-drag-region />
       <Sidebar view={view} onNavigate={setView} />
       <div className="main">
         <TopBar query={query} onQuery={setQuery} inputRef={searchRef} />
@@ -142,6 +148,7 @@ function Shell() {
                 query={query}
                 category={discoverCategory}
                 onCategory={setDiscoverCategory}
+                onOpenSettings={() => setView('settings')}
               />
             )}
             {view === 'library' && <Library query={query} />}
@@ -151,5 +158,6 @@ function Shell() {
         </main>
       </div>
     </div>
+    </DownloadsProvider>
   );
 }

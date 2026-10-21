@@ -19,6 +19,7 @@ import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { isTauri } from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
+import { LIBRARY_CHANGED_EVENT } from '../lib/dom.ts';
 import { importPaths, importWallpapers } from '../lib/importer.ts';
 import { regenerateThumbnail, repairVideoThumbnails } from '../lib/thumbnails.ts';
 import type { WallpaperRecord } from '../lib/domain.ts';
@@ -67,6 +68,13 @@ export default function Library({ query }: { query: string }) {
       .catch(() => toast('Could not load library', 'error'))
       .finally(() => setLoading(false));
   }, [refresh, toast]);
+
+  // A Discover download can finish while this view is open.
+  useEffect(() => {
+    const onChanged = () => void refresh().catch(() => undefined);
+    window.addEventListener(LIBRARY_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, onChanged);
+  }, [refresh]);
 
   useEffect(() => {
     if (repairedRef.current || loading || !isTauri()) return;

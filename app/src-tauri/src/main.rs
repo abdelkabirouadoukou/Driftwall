@@ -16,7 +16,7 @@ use tauri::{
     AppHandle, Manager, State,
 };
 
-use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, Source};
+use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, SearchOptions, Source};
 use download::{DownloadProgress, Downloads, Phase};
 use store::{Library, Wallpaper};
 
@@ -210,9 +210,16 @@ fn http_client() -> &'static reqwest::Client {
     })
 }
 
-async fn http_get_text(url: &str) -> Result<String, String> {
-    let response = http_client()
-        .get(url)
+/// GETs a provider URL (with any auth headers) and maps the failures people
+/// actually hit — a bad key, a rate limit — to messages they can act on.
+async fn http_get_text(request: &discover::Request, source: Source) -> Result<String, String> {
+    let mut builder = http_client()
+        .get(&request.url)
+        .timeout(std::time::Duration::from_secs(30));
+    for (name, value) in &request.headers {
+        builder = builder.header(*name, value);
+    }
+    let response = builder
         .send()
         .await
         .map_err(|e| format!("Network error: {e}"))?;
@@ -221,19 +228,36 @@ async fn http_get_text(url: &str) -> Result<String, String> {
         .text()
         .await
         .map_err(|e| format!("Network error: {e}"))?;
-    if !status.is_success() {
-        return Err(format!("Request failed with status {status}."));
+    if status.is_success() {
+        return Ok(body);
     }
-    Ok(body)
+
+    let provider = source.provider();
+    // Pixabay answers an invalid key with HTTP 400 and a plain-text body.
+    let bad_key = status.as_u16() == 401
+        || status.as_u16() == 403
+        || (status.as_u16() == 400 && body.to_lowercase().contains("api key"));
+    if bad_key && source.key_setting().is_some() {
+        return Err(format!(
+            "{provider} rejected the API key. Check it in Settings."
+        ));
+    }
+    if status.as_u16() == 429 {
+        return Err(format!(
+            "{provider} rate limit reached. Try again in a little while."
+        ));
+    }
+    Err(format!("{provider} request failed with status {status}."))
 }
 
-/// The stored Pixabay API key, if any.
-fn pixabay_key(app: &AppHandle) -> Option<String> {
+/// The stored API key for a source, if it uses one and one is saved.
+fn source_key(app: &AppHandle, source: Source) -> Option<String> {
+    let setting = source.key_setting()?;
     let library = app.state::<Mutex<Library>>();
     let library = library.lock().unwrap();
     library
         .settings
-        .get("pixabay_api_key")
+        .get(setting)
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -246,6 +270,12 @@ fn discover_categories() -> Vec<String> {
     discover::CATEGORIES.iter().map(|c| c.to_string()).collect()
 }
 
+/// Every source with its capabilities and whether an API key is saved.
+#[tauri::command]
+fn discover_sources(app: AppHandle) -> Vec<discover::SourceInfo> {
+    discover::describe_sources(|source| source_key(&app, source).is_some())
+}
+
 /// Searches a provider, honouring the 24-hour cache and the rate limiter.
 #[tauri::command]
 async fn discover_search(
@@ -254,49 +284,83 @@ async fn discover_search(
     source: Source,
     category: String,
     page: u32,
+    options: Option<SearchOptions>,
 ) -> Result<DiscoverPage, String> {
     let page = page.max(1);
-    let key = discover::cache_key(source, &query, &category, page);
+    let options = options.unwrap_or_default().for_source(source);
+    let cache_key = discover::cache_key(source, &query, &category, page, options);
 
     if let Some(hit) = app
         .state::<Mutex<Discover>>()
         .lock()
         .unwrap()
         .cache
-        .get(&key)
+        .get(&cache_key)
     {
         return Ok(hit);
     }
 
-    let wait = app.state::<Mutex<Discover>>().lock().unwrap().limiter(source).wait_time();
+    // Building the request first means a missing key is reported before any
+    // throttling, and never burns rate-limit budget.
+    let api_key = source_key(&app, source);
+    let request = discover::build_request(
+        source,
+        &query,
+        &category,
+        page,
+        options,
+        api_key.as_deref(),
+        discover::today_days(),
+    )?;
+
+    let wait = app
+        .state::<Mutex<Discover>>()
+        .lock()
+        .unwrap()
+        .limiter(source)
+        .wait_time();
+    if wait > discover::MAX_RATE_WAIT {
+        // Sleeping for minutes would look like a frozen app; say so instead.
+        return Err(discover::rate_limit_message(source, wait));
+    }
     if !wait.is_zero() {
         tokio::time::sleep(wait).await;
     }
+    // Count the request when it is issued, so overlapping searches cannot
+    // both slip under the limit.
+    app.state::<Mutex<Discover>>().lock().unwrap().mark(source);
 
-    let url = match source {
-        Source::Wallhaven => discover::wallhaven_url(&query, &category, page),
-        Source::Pixabay => {
-            let api_key = pixabay_key(&app).ok_or_else(|| {
-                "Add a Pixabay API key in Settings to browse videos.".to_string()
-            })?;
-            discover::pixabay_url(&query, &category, page, &api_key)
-        }
-    };
+    let body = http_get_text(&request, source).await?;
+    let parsed = discover::parse_page(source, &body, page)?;
 
-    let body = http_get_text(&url).await?;
-    let parsed = match source {
-        Source::Wallhaven => discover::parse_wallhaven(&body, page)?,
-        Source::Pixabay => discover::parse_pixabay(&body, page)?,
-    };
-
-    {
-        let state = app.state::<Mutex<Discover>>();
-        let mut state = state.lock().unwrap();
-        state.mark(source);
-        state.cache.put(&key, &parsed);
-    }
+    app.state::<Mutex<Discover>>()
+        .lock()
+        .unwrap()
+        .cache
+        .put(&cache_key, &parsed);
 
     Ok(parsed)
+}
+
+/// Opens an https link in the default browser (credits, key sign-up pages).
+/// Only https URLs are accepted.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") || url.contains(char::is_whitespace) {
+        return Err("Only https links can be opened.".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    let opener = "open";
+    #[cfg(target_os = "windows")]
+    let opener = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let opener = "xdg-open";
+
+    std::process::Command::new(opener)
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Streams a remote asset into the library directory, reporting progress over
@@ -318,6 +382,19 @@ async fn discover_download(
     let emit = |progress: DownloadProgress| {
         let _ = on_progress.send(progress);
     };
+
+    if !url.starts_with("https://") {
+        let message = "Only https downloads are allowed.".to_string();
+        emit(DownloadProgress {
+            id: id.clone(),
+            bytes_done: 0,
+            bytes_total: None,
+            speed_bps: 0.0,
+            phase: Phase::Error,
+            error: Some(message.clone()),
+        });
+        return Err(message);
+    }
 
     emit(DownloadProgress::new(&id, Phase::Queued));
 
@@ -438,9 +515,11 @@ fn main() {
             library_delete,
             reveal_in_finder,
             discover_categories,
+            discover_sources,
             discover_search,
             discover_download,
             discover_cancel,
+            open_external,
             settings_get,
             settings_set
         ])
