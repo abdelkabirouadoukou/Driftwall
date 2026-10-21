@@ -5,6 +5,7 @@ import { useToast } from './Toast.tsx';
 import Skeleton from './Skeleton.tsx';
 import * as api from '../lib/api.ts';
 import { wallpapersDir } from '../lib/paths.ts';
+import { DEFAULT_POWER_POLICY, type PowerPolicy } from '../lib/domain.ts';
 
 /** Sources that use an API key you create yourself (stored locally). */
 const KEY_SOURCES: {
@@ -33,7 +34,7 @@ const KEY_SOURCES: {
   },
 ];
 
-function Switch({
+export function Switch({
   on,
   onChange,
   label,
@@ -59,7 +60,7 @@ function Switch({
   );
 }
 
-function Row({
+export function Row({
   title,
   desc,
   children,
@@ -79,7 +80,7 @@ function Row({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="settings-section">
       <h2>{title}</h2>
@@ -207,11 +208,13 @@ export default function Settings() {
         </Row>
         <Row
           title="Wallpaper engine"
-          desc="Per-display playback, scaling modes and restore-original ship with Phase 2."
+          desc="Set a wallpaper from your Library, and manage rotation and restore-original in the Displays tab."
         >
-          <span className="muted small">Coming soon</span>
+          <span className="muted small">See Displays</span>
         </Row>
       </Section>
+
+      <PowerSection />
 
       <Section title="About">
         <Row
@@ -329,5 +332,82 @@ function KeyRow({
         )}
       </div>
     </Row>
+  );
+}
+
+/** Battery policy for live wallpapers. Rust (`power.rs`) decides; this only stores it. */
+function PowerSection() {
+  const { toast } = useToast();
+  const [policy, setPolicy] = useState<PowerPolicy>(DEFAULT_POWER_POLICY);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    void api
+      .settingsGet<Partial<PowerPolicy>>('power')
+      .then((stored) => setPolicy({ ...DEFAULT_POWER_POLICY, ...(stored ?? {}) }))
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const save = async (next: PowerPolicy) => {
+    const previous = policy;
+    setPolicy(next);
+    try {
+      await api.settingsSet('power', next);
+      // Apply right away instead of waiting for the 20s watcher tick.
+      await api.powerRefresh();
+    } catch {
+      setPolicy(previous);
+      toast('Could not save battery settings', 'error');
+    }
+  };
+
+  return (
+    <Section title="Battery">
+      <Row
+        title="Pause on battery"
+        desc="Pause live wallpapers whenever the Mac is unplugged."
+      >
+        <Switch
+          on={policy.pause_on_battery}
+          onChange={() => void save({ ...policy, pause_on_battery: !policy.pause_on_battery })}
+          label="Pause on battery"
+          disabled={!loaded}
+        />
+      </Row>
+      <Row
+        title="Pause below"
+        desc="Also pause on battery once charge drops to this level, even if the option above is off."
+      >
+        <div className="interval-input">
+          <input
+            className="setting-input"
+            type="number"
+            min={0}
+            max={100}
+            value={policy.battery_threshold}
+            disabled={!loaded}
+            aria-label="Pause below battery percent"
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isNaN(n)) return;
+              void save({ ...policy, battery_threshold: Math.min(100, Math.max(0, Math.round(n))) });
+            }}
+          />
+          <span className="muted small">%</span>
+        </div>
+      </Row>
+      <Row
+        title="Pause in Low Power Mode"
+        desc="Pause live wallpapers while macOS Low Power Mode is on."
+      >
+        <Switch
+          on={policy.pause_on_low_power}
+          onChange={() => void save({ ...policy, pause_on_low_power: !policy.pause_on_low_power })}
+          label="Pause in Low Power Mode"
+          disabled={!loaded}
+        />
+      </Row>
+    </Section>
   );
 }

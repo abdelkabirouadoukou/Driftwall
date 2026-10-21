@@ -5,9 +5,11 @@ import {
   FolderOpen,
   Image as ImageIcon,
   LayoutGrid,
+  MonitorPlay,
   Pencil,
   Plus,
   RefreshCw,
+  Repeat,
   Trash2,
   Video,
   X,
@@ -19,7 +21,11 @@ import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { isTauri } from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
-import { LIBRARY_CHANGED_EVENT } from '../lib/dom.ts';
+import {
+  LIBRARY_CHANGED_EVENT,
+  WALLPAPER_CHANGED_EVENT,
+  notifyWallpaperChanged,
+} from '../lib/dom.ts';
 import { importPaths, importWallpapers } from '../lib/importer.ts';
 import { regenerateThumbnail, repairVideoThumbnails } from '../lib/thumbnails.ts';
 import type { WallpaperRecord } from '../lib/domain.ts';
@@ -53,6 +59,7 @@ export default function Library({ query }: { query: string }) {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const anchorRef = useRef<string | null>(null);
   // One-time sweep so clips imported before the black-frame fix get repaired.
   const repairedRef = useRef(false);
@@ -75,6 +82,23 @@ export default function Library({ query }: { query: string }) {
     window.addEventListener(LIBRARY_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, onChanged);
   }, [refresh]);
+
+  // Which wallpaper is applied right now (for the "current" tile outline).
+  const refreshStatus = useCallback(async () => {
+    try {
+      const status = await api.engineStatus();
+      setCurrentId(status.current_id);
+    } catch {
+      setCurrentId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+    const onChanged = () => void refreshStatus();
+    window.addEventListener(WALLPAPER_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(WALLPAPER_CHANGED_EVENT, onChanged);
+  }, [refreshStatus]);
 
   useEffect(() => {
     if (repairedRef.current || loading || !isTauri()) return;
@@ -259,6 +283,29 @@ export default function Library({ query }: { query: string }) {
     }
   };
 
+  const setAsWallpaper = async (item: WallpaperRecord) => {
+    try {
+      await api.wallpaperApply(item.id);
+      toast(`“${item.title}” is now your wallpaper.`);
+      notifyWallpaperChanged();
+    } catch (error) {
+      toast(`Could not set wallpaper: ${String(error)}`, 'error');
+    }
+  };
+
+  const startRotation = async (ids: readonly string[]) => {
+    try {
+      await api.playlistSet(
+        { ids: [...ids], interval_secs: 1800, shuffle: false, enabled: true },
+        true,
+      );
+      toast(`Rotation started with ${ids.length} wallpapers.`);
+      notifyWallpaperChanged();
+    } catch (error) {
+      toast(String(error), 'error');
+    }
+  };
+
   const startRename = (item: WallpaperRecord) => {
     setRenaming({ id: item.id, value: item.title });
   };
@@ -288,6 +335,15 @@ export default function Library({ query }: { query: string }) {
     const count = selected.size;
     const many = count > 1 && selected.has(item.id);
     return [
+      ...(many
+        ? []
+        : [
+            {
+              label: 'Set as wallpaper',
+              icon: MonitorPlay,
+              onSelect: () => void setAsWallpaper(item),
+            },
+          ]),
       { label: 'Rename', icon: Pencil, onSelect: () => startRename(item) },
       { label: 'Reveal in Finder', icon: FolderOpen, onSelect: () => reveal(item) },
       {
@@ -414,6 +470,26 @@ export default function Library({ query }: { query: string }) {
           {selectedItems.length === 1 && (
             <button
               type="button"
+              className="btn primary"
+              onClick={() => void setAsWallpaper(selectedItems[0])}
+            >
+              <MonitorPlay size={14} aria-hidden="true" />
+              <span>Set as wallpaper</span>
+            </button>
+          )}
+          {selectedItems.length > 1 && (
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void startRotation(selectedItems.map((i) => i.id))}
+            >
+              <Repeat size={14} aria-hidden="true" />
+              <span>Start rotation ({selectedItems.length})</span>
+            </button>
+          )}
+          {selectedItems.length === 1 && (
+            <button
+              type="button"
               className="btn"
               onClick={() => reveal(selectedItems[0])}
             >
@@ -456,13 +532,14 @@ export default function Library({ query }: { query: string }) {
             return (
               <li
                 key={item.id}
-                className={selected.has(item.id) ? 'tile selected' : 'tile'}
+                className={`tile${selected.has(item.id) ? ' selected' : ''}${currentId === item.id ? ' current' : ''}`}
                 onClick={(e) => handleTileClick(e, item.id)}
                 onContextMenu={(e) => handleContextMenu(e, item)}
                 onMouseEnter={() => setHoverId(item.id)}
                 onMouseLeave={() => setHoverId((h) => (h === item.id ? null : h))}
               >
                 <div className="tile-thumb">
+                  {currentId === item.id && <span className="current-pill">Current</span>}
                   <span className="badge">
                     {isVideo ? <Video size={12} /> : <ImageIcon size={12} />}
                   </span>
@@ -478,6 +555,16 @@ export default function Library({ query }: { query: string }) {
                       {item.width && item.height ? `${item.width}×${item.height}` : '—'}
                     </span>
                     <div className="tile-actions">
+                      <button
+                        type="button"
+                        aria-label={`Set ${item.title} as wallpaper`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void setAsWallpaper(item);
+                        }}
+                      >
+                        <MonitorPlay size={14} />
+                      </button>
                       <button
                         type="button"
                         aria-label={`Rename ${item.title}`}

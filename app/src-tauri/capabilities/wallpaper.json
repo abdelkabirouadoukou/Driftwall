@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "wallpaper",
+  "description": "Minimal capability for the click-through live-wallpaper windows: no fs, no dialog, no process — just enough to receive events and call the engine's own commands.",
+  "windows": ["wallpaper-*"],
+  "permissions": ["core:default"]
+}

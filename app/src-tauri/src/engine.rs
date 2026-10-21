@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 use crate::power::{self, PowerPolicy, PowerStatus};
 use crate::store::{Library, Wallpaper, WallpaperType};
 
-const LIVE_LABEL: &str = "wallpaper";
+const LIVE_LABEL_PREFIX: &str = "wallpaper-";
 const MIN_INTERVAL_SECS: u64 = 15;
 
 /// Runtime engine state (the persisted parts live in library settings).
@@ -170,19 +170,50 @@ fn remember_original(app: &AppHandle) {
     }
 }
 
+/// Labels of every live wallpaper window currently open (one per display).
+fn live_labels(app: &AppHandle) -> Vec<String> {
+    app.webview_windows()
+        .keys()
+        .filter(|label| label.starts_with(LIVE_LABEL_PREFIX))
+        .cloned()
+        .collect()
+}
+
+fn live_window_exists(app: &AppHandle) -> bool {
+    !live_labels(app).is_empty()
+}
+
 fn close_live_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(LIVE_LABEL) {
-        let _ = w.destroy();
+    for label in live_labels(app) {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.destroy();
+        }
     }
     *app.state::<Engine>().paused.lock().unwrap() = None;
 }
 
-fn ensure_live_window(app: &AppHandle) -> Result<(), String> {
-    if app.get_webview_window(LIVE_LABEL).is_some() {
-        return Ok(());
+/// Makes sure there is exactly one borderless, click-through window per
+/// connected display. If the display count changed since the windows were
+/// built, they are all closed and rebuilt.
+fn ensure_live_windows(app: &AppHandle) -> Result<(), String> {
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    let existing = live_labels(app);
+    if !existing.is_empty() && existing.len() != monitors.len() {
+        for label in existing {
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.destroy();
+            }
+        }
     }
-    let mut builder =
-        WebviewWindowBuilder::new(app, LIVE_LABEL, WebviewUrl::App("index.html".into()))
+
+    // No monitor info at all: fall back to a single default-sized window.
+    let count = monitors.len().max(1);
+    for i in 0..count {
+        let label = format!("{LIVE_LABEL_PREFIX}{i}");
+        if app.get_webview_window(&label).is_some() {
+            continue;
+        }
+        let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
             .title("Driftwall Wallpaper")
             .decorations(false)
             .resizable(false)
@@ -192,25 +223,25 @@ fn ensure_live_window(app: &AppHandle) -> Result<(), String> {
             .always_on_bottom(true)
             .visible_on_all_workspaces(true);
 
-    if let Ok(Some(monitor)) = app.primary_monitor() {
-        let scale = monitor.scale_factor().max(1.0);
-        let size = monitor.size();
-        let pos = monitor.position();
-        builder = builder
-            .inner_size(size.width as f64 / scale, size.height as f64 / scale)
-            .position(pos.x as f64 / scale, pos.y as f64 / scale);
-    }
+        if let Some(monitor) = monitors.get(i) {
+            let scale = monitor.scale_factor().max(1.0);
+            let size = monitor.size();
+            let pos = monitor.position();
+            builder = builder
+                .inner_size(size.width as f64 / scale, size.height as f64 / scale)
+                .position(pos.x as f64 / scale, pos.y as f64 / scale);
+        }
 
-    let window = builder.build().map_err(|e| e.to_string())?;
-    // Clicks must reach the desktop (icons, Finder), not the video.
-    let _ = window.set_ignore_cursor_events(true);
+        let window = builder.build().map_err(|e| e.to_string())?;
+        // Clicks must reach the desktop (icons, Finder), not the video.
+        let _ = window.set_ignore_cursor_events(true);
+    }
     Ok(())
 }
 
 fn emit_state(app: &AppHandle) {
     let reason = app.state::<Engine>().paused.lock().unwrap().clone();
-    let _ = app.emit_to(
-        LIVE_LABEL,
+    let _ = app.emit(
         "live-state",
         json!({ "playing": reason.is_none(), "reason": reason }),
     );
@@ -218,7 +249,7 @@ fn emit_state(app: &AppHandle) {
 
 /// Re-evaluates the power policy and tells the player if the answer changed.
 fn evaluate_power(app: &AppHandle) {
-    if app.get_webview_window(LIVE_LABEL).is_none() {
+    if !live_window_exists(app) {
         return;
     }
     let reason = power::pause_reason(&power::read_status(), &read_policy(app)).map(String::from);
@@ -255,8 +286,8 @@ async fn apply(app: &AppHandle, wallpaper: &Wallpaper) -> Result<(), String> {
             close_live_window(app);
         }
         WallpaperType::Video => {
-            ensure_live_window(app)?;
-            let _ = app.emit_to(LIVE_LABEL, "live-load", json!({ "path": wallpaper.file_path }));
+            ensure_live_windows(app)?;
+            let _ = app.emit("live-load", json!({ "path": wallpaper.file_path }));
         }
     }
     *app.state::<Engine>().current.lock().unwrap() = Some(wallpaper.id.clone());
@@ -327,7 +358,7 @@ pub fn start(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(20)).await;
-            if app2.get_webview_window(LIVE_LABEL).is_some() {
+            if live_window_exists(&app2) {
                 let app3 = app2.clone();
                 let _ = tauri::async_runtime::spawn_blocking(move || evaluate_power(&app3)).await;
             }
@@ -400,7 +431,7 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
     let paused_reason = engine.paused.lock().unwrap().clone();
     Ok(EngineStatus {
         current_id,
-        live_active: app.get_webview_window(LIVE_LABEL).is_some(),
+        live_active: live_window_exists(&app),
         paused_reason,
         on_battery: status.on_battery,
         battery_percent: status.percent,

@@ -5,9 +5,9 @@ import Skeleton from './Skeleton.tsx';
 import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
-import { LIBRARY_CHANGED_EVENT } from '../lib/dom.ts';
+import { LIBRARY_CHANGED_EVENT, WALLPAPER_CHANGED_EVENT } from '../lib/dom.ts';
 import { importWallpapers } from '../lib/importer.ts';
-import type { WallpaperRecord } from '../lib/domain.ts';
+import type { EngineStatus, WallpaperRecord } from '../lib/domain.ts';
 import type { View } from './Sidebar.tsx';
 
 /** Category chips shown as shortcuts; A3 wires these to the Discover source. */
@@ -34,6 +34,7 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<EngineStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +72,14 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
     return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, onChanged);
   }, []);
 
+  // "Now playing" follows the engine; refresh whenever the wallpaper changes.
+  useEffect(() => {
+    const load = () => void api.engineStatus().then(setStatus).catch(() => setStatus(null));
+    load();
+    window.addEventListener(WALLPAPER_CHANGED_EVENT, load);
+    return () => window.removeEventListener(WALLPAPER_CHANGED_EVENT, load);
+  }, []);
+
   const handleImport = async () => {
     setBusy(true);
     try {
@@ -88,6 +97,9 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
       setBusy(false);
     }
   };
+
+  const nowPlaying = status?.current_id ? items.find((i) => i.id === status.current_id) : undefined;
+  const nowThumb = nowPlaying ? thumbs[nowPlaying.id] : undefined;
 
   const q = query.trim().toLowerCase();
   const recent = (q
@@ -115,19 +127,30 @@ export default function Home({ query, onNavigate, onBrowseCategory }: Props) {
         </button>
       </header>
 
-      {/* "Now playing" — populated by Stage B once playback ships. */}
-      <div className="hero">
-        <div className="hero-thumb" aria-hidden="true">
-          <MonitorPlay size={26} />
+      <div className="now-playing">
+        <div className="now-playing-thumb" aria-hidden="true">
+          {nowThumb ? <img src={nowThumb} alt="" /> : <MonitorPlay size={26} />}
         </div>
         <div className="stack" style={{ gap: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--fs-h1)', fontWeight: 600 }}>
-            Nothing playing yet
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
+            {nowPlaying ? nowPlaying.title : 'Nothing playing yet'}
           </h2>
-          <p className="muted" style={{ margin: 0, maxWidth: 460 }}>
-            Import a wallpaper or pick one from Discover. Playback, per-display
-            assignment and restore-original land with the wallpaper engine.
-          </p>
+          {nowPlaying ? (
+            <div className="row" style={{ gap: 8 }}>
+              {status?.paused_reason ? (
+                <span className="paused-pill">Paused · {status.paused_reason}</span>
+              ) : (
+                <span className="current-pill">
+                  {nowPlaying.type === 'video' ? 'Playing live' : 'Current wallpaper'}
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0, maxWidth: 460 }}>
+              Import a wallpaper or pick one from Discover, then choose “Set as
+              wallpaper” in your library.
+            </p>
+          )}
           <div className="row" style={{ marginTop: 6 }}>
             <button
               type="button"
