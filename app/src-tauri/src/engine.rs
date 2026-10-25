@@ -545,6 +545,9 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
     let engine: State<'_, Engine> = app.state();
     let current_id = engine.current.lock().unwrap().clone();
     let paused_reason = engine.paused.lock().unwrap().clone();
+    // Read into a local first: a lock guard created inside the final
+    // expression would outlive `engine` and fail to compile (E0597).
+    let rotation_next_at = *engine.next_change.lock().unwrap();
     Ok(EngineStatus {
         current_id,
         live_active: live_window_exists(&app),
@@ -552,7 +555,7 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
         on_battery: status.on_battery,
         battery_percent: status.percent,
         low_power: status.low_power,
-        rotation_next_at: *engine.next_change.lock().unwrap(),
+        rotation_next_at,
     })
 }
 
