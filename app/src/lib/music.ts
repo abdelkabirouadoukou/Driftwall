@@ -95,3 +95,25 @@ export function titleFromPath(path: string): string {
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(0, dot) : name;
 }
+
+/**
+ * Friendly text for a YouTube IFrame API error code
+ * (https://developers.google.com/youtube/iframe_api_reference#onError).
+ */
+export function youtubeErrorMessage(code: number): string {
+  switch (code) {
+    case 2:
+      return 'That YouTube link has an invalid video id.';
+    case 5:
+      return 'YouTube’s player hit an error on this video.';
+    case 100:
+      return 'That video was removed or is private.';
+    case 101:
+    case 150:
+      return 'The owner of that video does not allow it to play in other apps.';
+    case 153:
+      return 'YouTube refused to play inside the app (error 153: missing referrer).';
+    default:
+      return `YouTube could not play this video (error ${code}).`;
+  }
+}

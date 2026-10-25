@@ -15,7 +15,12 @@ import { Switch } from './Settings.tsx';
 import * as api from '../lib/api.ts';
 import { resolveThumbUrls } from '../lib/paths.ts';
 import { sceneById, sceneIdFromCurrent } from '../lib/scenes.ts';
-import { WALLPAPER_CHANGED_EVENT, bridgeWallpaperEvents, notifyWallpaperChanged } from '../lib/dom.ts';
+import {
+  LIBRARY_CHANGED_EVENT,
+  WALLPAPER_CHANGED_EVENT,
+  bridgeWallpaperEvents,
+  notifyWallpaperChanged,
+} from '../lib/dom.ts';
 import { DEFAULT_POWER_POLICY, type EngineStatus, type PowerPolicy, type WallpaperRecord } from '../lib/domain.ts';
 import {
   MUSIC_CMD_EVENT,
@@ -70,6 +75,7 @@ export default function TrayPanel() {
     const stopBridge = bridgeWallpaperEvents();
     const onChanged = () => void refresh();
     window.addEventListener(WALLPAPER_CHANGED_EVENT, onChanged);
+    window.addEventListener(LIBRARY_CHANGED_EVENT, onChanged);
     // The panel window is reused, so refresh every time it is shown again.
     window.addEventListener('focus', onChanged);
 
@@ -87,6 +93,7 @@ export default function TrayPanel() {
       unlisten?.();
       stopBridge();
       window.removeEventListener(WALLPAPER_CHANGED_EVENT, onChanged);
+      window.removeEventListener(LIBRARY_CHANGED_EVENT, onChanged);
       window.removeEventListener('focus', onChanged);
     };
   }, [refresh]);

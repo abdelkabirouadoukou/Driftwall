@@ -5,6 +5,7 @@ import {
   placeholderTitle,
   stepIndex,
   titleFromPath,
+  youtubeErrorMessage,
 } from './music.ts';
 
 describe('parseTimestamp', () => {
@@ -57,5 +58,18 @@ describe('helpers', () => {
     expect(placeholderTitle('abc')).toBe('YouTube · abc');
     expect(titleFromPath('/a/b/My Song.mp3')).toBe('My Song');
     expect(titleFromPath('C:\\x\\song')).toBe('song');
+  });
+});
+
+describe('youtubeErrorMessage', () => {
+  it('explains the common embed errors', () => {
+    expect(youtubeErrorMessage(100)).toMatch(/removed|private/);
+    expect(youtubeErrorMessage(101)).toMatch(/does not allow/);
+    expect(youtubeErrorMessage(150)).toBe(youtubeErrorMessage(101));
+    expect(youtubeErrorMessage(153)).toMatch(/153/);
+  });
+
+  it('falls back to the code for unknown errors', () => {
+    expect(youtubeErrorMessage(999)).toContain('999');
   });
 });

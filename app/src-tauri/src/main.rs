@@ -143,6 +143,12 @@ fn open_main_window(app: AppHandle, view: Option<String>) {
 
 /* ------------------------------------------------------------------ library */
 
+/// Tells every window (main, menu-bar panel) that the library changed, so their
+/// wallpaper lists and thumbnails reload by themselves.
+fn notify_library_changed(app: &AppHandle) {
+    let _ = app.emit("driftwall:library-changed", serde_json::json!({ "from": "rust" }));
+}
+
 /// Returns the app data directory, creating it if necessary.
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -174,7 +180,9 @@ fn library_add(
         library.add(wallpaper);
         library.clone()
     };
-    persist(&app, &snapshot)
+    persist(&app, &snapshot)?;
+    notify_library_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -191,7 +199,9 @@ fn library_rename(
         }
         library.clone()
     };
-    persist(&app, &snapshot)
+    persist(&app, &snapshot)?;
+    notify_library_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -218,7 +228,10 @@ fn library_delete(
     }
 
     let snapshot = state.lock().unwrap().clone();
-    persist(&app, &snapshot)
+    persist(&app, &snapshot)?;
+    engine::on_wallpaper_deleted(&app, &id);
+    notify_library_changed(&app);
+    Ok(())
 }
 
 /// Reveals a file in the OS file manager, selecting it where supported.

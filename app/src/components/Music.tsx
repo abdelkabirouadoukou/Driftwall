@@ -24,6 +24,7 @@ import {
   placeholderTitle,
   stepIndex,
   titleFromPath,
+  youtubeErrorMessage,
   type MusicCommand,
   type MusicState,
   type MusicTrack,
@@ -36,6 +37,8 @@ interface YTPlayer {
   playVideo(): void;
   pauseVideo(): void;
   setVolume(volume: number): void;
+  unMute(): void;
+  isMuted(): boolean;
   getVideoData(): { title?: string };
 }
 
@@ -162,6 +165,8 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
   }, []);
 
   const nextRef = useRef<() => void>(() => undefined);
+  // Consecutive YouTube failures, so a playlist of blocked videos doesn't skip forever.
+  const failStreakRef = useRef(0);
 
   const ensureYouTube = useCallback((): Promise<YTPlayer> => {
     if (ytPromiseRef.current) return ytPromiseRef.current;
@@ -173,29 +178,55 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
           const player: YTPlayer = new YT.Player(mount, {
             width: '100%',
             height: '100%',
-            playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+            playerVars: {
+              playsinline: 1,
+              rel: 0,
+              modestbranding: 1,
+              autoplay: 1,
+              fs: 0,
+              iv_load_policy: 3,
+              disablekb: 1,
+              enablejsapi: 1,
+            },
             events: {
               onReady: () => {
                 ytRef.current = player;
+                player.unMute();
                 player.setVolume(volumeRef.current);
                 resolve(player);
               },
               onStateChange: (event) => {
+                // The iframe reports asynchronously: ignore events that arrive
+                // after the user already moved on to a local file, otherwise a
+                // late "paused" flips the UI while the file is playing.
+                const cur = tracksRef.current[indexRef.current];
+                if (cur?.kind !== 'youtube') return;
                 // 0 ended, 1 playing, 2 paused
                 if (event.data === 0) nextRef.current();
                 if (event.data === 1) {
+                  failStreakRef.current = 0;
                   setPlaying(true);
-                  const cur = tracksRef.current[indexRef.current];
+                  // YouTube can start muted (autoplay policy) or reset the
+                  // volume when a new video loads: that was the "no audio" bug.
+                  if (player.isMuted()) player.unMute();
+                  player.setVolume(volumeRef.current);
                   const t = player.getVideoData().title;
-                  if (cur?.kind === 'youtube' && t && cur.title === placeholderTitle(cur.video_id ?? '')) {
+                  if (t && cur.title === placeholderTitle(cur.video_id ?? '')) {
                     setTrackTitle(cur.id, t);
                   }
                 }
                 if (event.data === 2) setPlaying(false);
               },
-              onError: () => {
+              onError: (event) => {
                 setPlaying(false);
-                toast('YouTube could not play this video here (it may block embedding).', 'error');
+                const count = tracksRef.current.length;
+                failStreakRef.current += 1;
+                const willSkip = count > 1 && failStreakRef.current < count;
+                toast(
+                  `${youtubeErrorMessage(event.data)}${willSkip ? ' Skipping to the next song.' : ''}`,
+                  'error',
+                );
+                if (willSkip) window.setTimeout(() => nextRef.current(), 1500);
               },
             },
           });
@@ -207,6 +238,14 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
     });
     return promise;
   }, [setTrackTitle, toast]);
+
+  // Warm the YouTube player up as soon as the playlist has a YouTube song.
+  // Otherwise the first click waits for the API script to download, the browser
+  // no longer sees a user gesture and starts the video muted or blocked.
+  const hasYouTube = tracks.some((t) => t.kind === 'youtube');
+  useEffect(() => {
+    if (loaded && hasYouTube) void ensureYouTube().catch(() => undefined);
+  }, [loaded, hasYouTube, ensureYouTube]);
 
   const playAt = useCallback(
     (i: number) => {
@@ -226,6 +265,7 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
           } else if (track.video_id) {
             audio?.pause();
             const player = await ensureYouTube();
+            player.unMute();
             player.setVolume(volumeRef.current);
             player.loadVideoById({ videoId: track.video_id, startSeconds: track.start ?? 0 });
           }
@@ -402,9 +442,21 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
       {children}
       <audio
         ref={audioRef}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => nextRef.current()}
+        onPlay={() => {
+          if (tracksRef.current[indexRef.current]?.kind === 'file') setPlaying(true);
+        }}
+        onPause={() => {
+          if (tracksRef.current[indexRef.current]?.kind === 'file') setPlaying(false);
+        }}
+        onEnded={() => {
+          if (tracksRef.current[indexRef.current]?.kind === 'file') nextRef.current();
+        }}
+        onError={() => {
+          if (tracksRef.current[indexRef.current]?.kind === 'file') {
+            setPlaying(false);
+            toast('That audio file could not be played.', 'error');
+          }
+        }}
       />
       <div className={videoVisible ? 'yt-host on' : 'yt-host'}>
         <div ref={mountRef} />

@@ -25,6 +25,7 @@ import { assetUrl, resolveThumbUrls } from '../lib/paths.ts';
 import {
   LIBRARY_CHANGED_EVENT,
   WALLPAPER_CHANGED_EVENT,
+  notifyLibraryChanged,
   notifyWallpaperChanged,
 } from '../lib/dom.ts';
 import { importPaths, importWallpapers } from '../lib/importer.ts';
@@ -111,6 +112,7 @@ export default function Library({ query }: { query: string }) {
       const fixed = await repairVideoThumbnails(videos);
       if (cancelled || fixed === 0) return;
       await refresh();
+      notifyLibraryChanged();
       toast(`Regenerated ${fixed} video thumbnail${fixed === 1 ? '' : 's'}.`);
     })();
     return () => {
@@ -278,6 +280,7 @@ export default function Library({ query }: { query: string }) {
         return;
       }
       await refresh();
+      notifyLibraryChanged();
       toast('Thumbnail regenerated.');
     } catch (error) {
       toast(`Could not regenerate thumbnail: ${String(error)}`, 'error');
@@ -296,8 +299,15 @@ export default function Library({ query }: { query: string }) {
 
   const startRotation = async (ids: readonly string[]) => {
     try {
+      // Keep the interval/shuffle the user already chose in Displays.
+      const stored = await api.playlistGet().catch(() => null);
       await api.playlistSet(
-        { ids: [...ids], interval_secs: 1800, shuffle: false, enabled: true },
+        {
+          ids: [...ids],
+          interval_secs: stored?.interval_secs ?? 1800,
+          shuffle: stored?.shuffle ?? false,
+          enabled: true,
+        },
         true,
       );
       toast(`Rotation started with ${ids.length} wallpapers.`);

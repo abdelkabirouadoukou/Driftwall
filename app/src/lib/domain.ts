@@ -67,12 +67,16 @@ export interface EngineStatus {
   battery_percent: number | null;
   /** Whether macOS Low Power Mode is on. */
   low_power: boolean;
+  /** Unix ms of the next automatic rotation, when a rotation is running. */
+  rotation_next_at?: number | null;
 }
 
 /** What the live wallpaper window should show right now, from `live_current`. */
 export interface LiveCurrent {
   /** Video file to play (absent for built-in scenes). */
   path?: string;
+  /** Thumbnail painted behind the video while it loads. */
+  poster?: string | null;
   /** Built-in scene id (see `lib/scenes.ts`), when a scene is showing. */
   scene?: string;
   playing: boolean;

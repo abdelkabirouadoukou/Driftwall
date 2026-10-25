@@ -20,8 +20,16 @@ export function mainScrollElement(): HTMLElement | null {
 export const LIBRARY_CHANGED_EVENT = 'driftwall:library-changed';
 
 export function notifyLibraryChanged(): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(LIBRARY_CHANGED_EVENT));
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(LIBRARY_CHANGED_EVENT));
+  // Tell the other windows (menu-bar panel <-> main window) too.
+  if (inTauriWindow()) {
+    void emit(LIBRARY_TAURI_EVENT, { from: windowLabel() }).catch(() => undefined);
+  }
 }
+
+/** Name of the Tauri event that carries library changes between windows. */
+export const LIBRARY_TAURI_EVENT = 'driftwall:library-changed';
 
 /**
  * Fired on `window` whenever the applied wallpaper or rotation changes (set,
@@ -55,24 +63,34 @@ function windowLabel(): string {
 }
 
 /**
- * Re-dispatches wallpaper changes made in another window (or by the Rust
- * rotation timer) as the local DOM event. Returns the cleanup function.
+ * Re-dispatches wallpaper and library changes made in another window (or by
+ * the Rust side: imports, deletes, the rotation timer) as local DOM events, so
+ * every view and the menu-bar panel stay in sync with the library.
+ * Returns the cleanup function.
  */
 export function bridgeWallpaperEvents(): () => void {
   if (!inTauriWindow()) return () => undefined;
   let disposed = false;
-  let unlisten: (() => void) | undefined;
-  void listen<{ from?: string }>(WALLPAPER_TAURI_EVENT, (event) => {
-    if (event.payload?.from === windowLabel()) return;
-    window.dispatchEvent(new Event(WALLPAPER_CHANGED_EVENT));
-  })
-    .then((fn) => {
-      if (disposed) fn();
-      else unlisten = fn;
+  const unlisteners: Array<() => void> = [];
+
+  const watch = (tauriEvent: string, domEvent: string) => {
+    void listen<{ from?: string }>(tauriEvent, (event) => {
+      if (event.payload?.from === windowLabel()) return;
+      window.dispatchEvent(new Event(domEvent));
     })
-    .catch(() => undefined);
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisteners.push(fn);
+      })
+      .catch(() => undefined);
+  };
+
+  watch(WALLPAPER_TAURI_EVENT, WALLPAPER_CHANGED_EVENT);
+  watch(LIBRARY_TAURI_EVENT, LIBRARY_CHANGED_EVENT);
+
   return () => {
     disposed = true;
-    unlisten?.();
+    for (const fn of unlisteners) fn();
+    unlisteners.length = 0;
   };
 }

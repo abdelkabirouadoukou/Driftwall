@@ -1672,7 +1672,12 @@ select {
   width: 100vw;
   height: 100vh;
   margin: 0;
-  background: transparent;
+  /* The clip's thumbnail is set inline as the background-image, so the
+     desktop never flashes blank while the video loads or restarts. */
+  background-color: #000;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   overflow: hidden;
 }
 
@@ -1684,6 +1689,8 @@ select {
   opacity: 0;
   transition: opacity 400ms ease;
   transform: translateZ(0);
+  will-change: opacity;
+  pointer-events: none;
 }
 
 .live-root video.ready {
@@ -1841,20 +1848,29 @@ select {
 /* ------------------------------------------------------------ music + panel */
 
 .yt-host {
+  /* Kept inside the viewport (but invisible and non-interactive) instead of
+     parked at left:-10000px: WebKit throttles or suspends off-screen frames,
+     which is what made the YouTube audio stutter or stop. */
   position: fixed;
-  left: -10000px;
-  bottom: 24px;
+  left: 0;
+  bottom: 0;
   width: 320px;
   height: 180px;
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: #000;
-  z-index: 5;
+  opacity: 0.01;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .yt-host.on {
   left: auto;
   right: 24px;
+  bottom: 24px;
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 5;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 

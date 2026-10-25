@@ -28,6 +28,8 @@ pub struct Engine {
     generation: AtomicU64,
     current: Mutex<Option<String>>,
     paused: Mutex<Option<String>>,
+    /// Unix ms of the next scheduled rotation, `None` when no rotation runs.
+    next_change: Mutex<Option<u64>>,
 }
 
 impl Engine {
@@ -36,6 +38,7 @@ impl Engine {
             generation: AtomicU64::new(0),
             current: Mutex::new(None),
             paused: Mutex::new(None),
+            next_change: Mutex::new(None),
         }
     }
 }
@@ -71,9 +74,27 @@ pub struct EngineStatus {
     on_battery: bool,
     battery_percent: Option<u8>,
     low_power: bool,
+    /// Unix ms of the next automatic rotation, when a rotation is running.
+    rotation_next_at: Option<u64>,
 }
 
 /* ----------------------------------------------------------------- helpers */
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Path of the stored thumbnail for a wallpaper id, if it exists. The live
+/// window paints it as a poster so there is never a blank frame while the
+/// video loads.
+fn poster_path(app: &AppHandle, id: &str) -> Option<String> {
+    let dir = app.path().app_data_dir().ok()?;
+    let thumb = dir.join("thumbnails").join(format!("{id}.thumb.png"));
+    thumb.exists().then(|| thumb.to_string_lossy().into_owned())
+}
 
 fn setting(app: &AppHandle, key: &str) -> Option<Value> {
     app.state::<Mutex<Library>>().lock().unwrap().settings.get(key).cloned()
@@ -334,7 +355,10 @@ async fn apply(app: &AppHandle, wallpaper: &Wallpaper) -> Result<(), String> {
             let _ = tauri::async_runtime::spawn_blocking(move || set_poster_picture(&app2, &video))
                 .await;
             ensure_live_windows(app)?;
-            let _ = app.emit("live-load", json!({ "path": wallpaper.file_path }));
+            let _ = app.emit(
+                "live-load",
+                json!({ "path": wallpaper.file_path, "poster": poster_path(app, &wallpaper.id) }),
+            );
         }
     }
     *app.state::<Engine>().current.lock().unwrap() = Some(wallpaper.id.clone());
@@ -356,22 +380,33 @@ async fn advance(app: &AppHandle) -> Result<(), String> {
         return Err("The rotation has no wallpapers left.".into());
     }
     let current = app.state::<Engine>().current.lock().unwrap().clone();
-    let current_idx = current.and_then(|c| ids.iter().position(|id| *id == c));
-    let rand = uuid::Uuid::new_v4().as_u128() as u64;
-    let next = power::pick_next(ids.len(), current_idx, playlist.shuffle, rand);
-    match find_wallpaper(app, &ids[next]) {
-        Some(w) => apply(app, &w).await,
-        None => Err("Wallpaper not found.".into()),
+    let mut idx = current.and_then(|c| ids.iter().position(|id| *id == c));
+    let mut last_error = String::from("Wallpaper not found.");
+    // A wallpaper whose file went missing must not freeze the rotation on it:
+    // try each candidate once and move on to the next that works.
+    for _ in 0..ids.len() {
+        let rand = uuid::Uuid::new_v4().as_u128() as u64;
+        let next = power::pick_next(ids.len(), idx, playlist.shuffle, rand);
+        idx = Some(next);
+        let Some(w) = find_wallpaper(app, &ids[next]) else { continue };
+        match apply(app, &w).await {
+            Ok(()) => return Ok(()),
+            Err(e) => last_error = e,
+        }
     }
+    Err(last_error)
 }
 
 fn restart_scheduler(app: &AppHandle) {
-    let generation = app.state::<Engine>().generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let engine = app.state::<Engine>();
+    let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let playlist = read_playlist(app);
     if !playlist.enabled || playlist.ids.len() < 2 {
+        *engine.next_change.lock().unwrap() = None;
         return;
     }
     let interval = Duration::from_secs(playlist.interval_secs.max(MIN_INTERVAL_SECS));
+    *engine.next_change.lock().unwrap() = Some(now_ms() + interval.as_millis() as u64);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -380,6 +415,12 @@ fn restart_scheduler(app: &AppHandle) {
                 break;
             }
             let _ = advance(&app).await;
+            // Re-check: the playlist may have been replaced while advancing.
+            if app.state::<Engine>().generation.load(Ordering::SeqCst) != generation {
+                break;
+            }
+            *app.state::<Engine>().next_change.lock().unwrap() =
+                Some(now_ms() + interval.as_millis() as u64);
         }
     });
 }
@@ -511,6 +552,7 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
         on_battery: status.on_battery,
         battery_percent: status.percent,
         low_power: status.low_power,
+        rotation_next_at: *engine.next_change.lock().unwrap(),
     })
 }
 
@@ -527,11 +569,44 @@ pub fn live_current(app: AppHandle) -> Option<Value> {
         return None;
     }
     let reason = app.state::<Engine>().paused.lock().unwrap().clone();
-    Some(json!({ "path": w.file_path, "playing": reason.is_none(), "reason": reason }))
+    Some(json!({
+        "path": w.file_path,
+        "poster": poster_path(&app, &w.id),
+        "playing": reason.is_none(),
+        "reason": reason
+    }))
 }
 
 /// Re-checks power right away (used after the user changes the battery policy).
 #[tauri::command]
 pub async fn power_refresh(app: AppHandle) {
     let _ = tauri::async_runtime::spawn_blocking(move || evaluate_power(&app)).await;
+}
+
+/// Called after a wallpaper was deleted from the library: stops it if it was on
+/// screen and drops it from the rotation, so nothing keeps pointing at a file
+/// that no longer exists.
+pub fn on_wallpaper_deleted(app: &AppHandle, id: &str) {
+    let was_current =
+        app.state::<Engine>().current.lock().unwrap().as_deref() == Some(id);
+    if was_current {
+        close_live_window(app);
+        *app.state::<Engine>().current.lock().unwrap() = None;
+        let _ = put_setting(app, "engine_current", Value::Null);
+    }
+
+    let mut playlist = read_playlist(app);
+    if playlist.ids.iter().any(|x| x == id) {
+        playlist.ids.retain(|x| x != id);
+        if playlist.ids.len() < 2 {
+            playlist.enabled = false;
+        }
+        if let Ok(value) = serde_json::to_value(&playlist) {
+            let _ = put_setting(app, "playlist", value);
+        }
+        restart_scheduler(app);
+    }
+    if was_current {
+        let _ = app.emit("driftwall:wallpaper-changed", json!({ "from": "rust" }));
+    }
 }
