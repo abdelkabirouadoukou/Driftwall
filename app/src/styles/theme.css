@@ -2079,3 +2079,25 @@ select {
   object-fit: cover;
   display: block;
 }
+
+/* ------------------------------------------- still-first video (Discover) */
+.pv { position: relative; width: 100%; height: 100%; background: #000; }
+.pv img,
+.pv .pv-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pv[data-fit='cover'] img,
+.pv[data-fit='cover'] .pv-video { object-fit: cover; }
+.pv .pv-video { opacity: 0; transition: opacity 240ms ease; }
+.pv .pv-video.ready { opacity: 1; }
+.pv-status {
+  position: absolute; left: var(--space-3); bottom: var(--space-3);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 4px 10px; border-radius: var(--radius-pill);
+  background: rgba(10, 10, 16, 0.78); color: var(--text, #e8e6ff);
+  font-size: 12px; font-weight: 500;
+}
+.pv-dot { width: 8px; height: 8px; border-radius: 50%; background: #2dd4bf; animation: pv-pulse 1s ease-in-out infinite; }
+@keyframes pv-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .pv .pv-video { transition: none; }
+  .pv-dot { animation: none; }
+}

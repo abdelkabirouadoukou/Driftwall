@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import EmptyState from './EmptyState.tsx';
 import PreviewVideo from './PreviewVideo.tsx';
+import ProgressiveVideo from './ProgressiveVideo.tsx';
 import Skeleton from './Skeleton.tsx';
 import { ProgressBar, useDownloads } from './Downloads.tsx';
 import * as api from '../lib/api.ts';
@@ -408,6 +409,8 @@ function DiscoverTile({
   onAdd: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const hoverTimer = useRef<number>(undefined);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
   const [thumbFailed, setThumbFailed] = useState(false);
   const resolution = item.width && item.height ? `${item.width}×${item.height}` : '';
   const busy = !!entry && isActive(entry);
@@ -420,8 +423,14 @@ function DiscoverTile({
     <li
       className="tile"
       onClick={onOpen}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        // Hover intent: sweeping across the grid must not start a download per tile.
+        hoverTimer.current = window.setTimeout(() => setHovered(true), 220);
+      }}
+      onMouseLeave={() => {
+        window.clearTimeout(hoverTimer.current);
+        setHovered(false);
+      }}
     >
       <div className="tile-thumb">
         <span className="badge">
@@ -540,14 +549,7 @@ function DetailDrawer({
         <div className="drawer-body">
           <div className="drawer-media">
             {item.kind === 'video' && item.preview_url ? (
-              <video
-                src={item.preview_url}
-                poster={item.thumb_url}
-                muted
-                loop
-                autoPlay
-                playsInline
-              />
+              <ProgressiveVideo src={item.preview_url} poster={item.thumb_url} alt={item.title} />
             ) : (
               <img src={item.thumb_url} alt={item.title} />
             )}

@@ -179,6 +179,43 @@ fn set_desktop_picture(path: &str) -> Result<(), String> {
     }
 }
 
+/// Copies a picture to a fresh file under `<app data>/desktop/` and returns its path.
+/// macOS keeps pointing at the file it was given, so a picture that lives in the
+/// library goes grey the moment its library entry (and file) is deleted. A private
+/// copy with a new name also sidesteps macOS caching by path.
+fn fresh_picture(app: &AppHandle, src: &std::path::Path) -> Option<String> {
+    let dir = app.path().app_data_dir().ok()?.join("desktop");
+    std::fs::create_dir_all(&dir).ok()?;
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
+    let dest = dir.join(format!("wp-{}.{}", uuid::Uuid::new_v4().simple(), ext));
+    std::fs::copy(src, &dest).ok()?;
+    Some(dest.to_string_lossy().into_owned())
+}
+
+/// Keeps only the two newest private pictures (the current one and a spare).
+fn prune_pictures(app: &AppHandle, keep: &str) {
+    let Ok(base) = app.path().app_data_dir() else { return };
+    let Ok(entries) = std::fs::read_dir(base.join("desktop")) else { return };
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in files.into_iter().skip(2) {
+        if path.to_str() != Some(keep) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Sets the desktop picture from a private copy of `src`.
+fn set_picture_from(app: &AppHandle, src: &std::path::Path) -> Result<(), String> {
+    let path = fresh_picture(app, src).unwrap_or_else(|| src.to_string_lossy().into_owned());
+    set_desktop_picture(&path)?;
+    prune_pictures(app, &path);
+    Ok(())
+}
+
 /// Remembers the user's original wallpaper once, so it can be restored.
 fn remember_original(app: &AppHandle) {
     if setting(app, "original_wallpaper").is_some() {
@@ -300,7 +337,7 @@ fn set_poster_picture(app: &AppHandle, wallpaper: &Wallpaper) {
         return;
     }
     remember_original(app);
-    let _ = set_desktop_picture(&thumb.to_string_lossy());
+    let _ = set_picture_from(app, &thumb);
 }
 
 fn emit_state(app: &AppHandle) {
@@ -343,7 +380,7 @@ async fn apply(app: &AppHandle, wallpaper: &Wallpaper) -> Result<(), String> {
             let path = wallpaper.file_path.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 remember_original(&app2);
-                set_desktop_picture(&path)
+                set_picture_from(&app2, std::path::Path::new(&path))
             })
             .await
             .map_err(|e| e.to_string())??;
