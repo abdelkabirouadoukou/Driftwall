@@ -3,6 +3,7 @@
 mod discover;
 mod download;
 mod engine;
+mod player_server;
 mod power;
 mod store;
 
@@ -21,6 +22,7 @@ use tauri::{
 
 use discover::{Discover, DiscoverKind, DiscoverPage, DownloadedFile, SearchOptions, Source};
 use download::{DownloadProgress, Downloads, Phase};
+use player_server::PlayerServer;
 use store::{Library, Wallpaper};
 
 /// Whether the app shows a Dock icon (`Regular`) or is menu-bar only (`Accessory`).
@@ -590,6 +592,14 @@ fn discover_cancel(downloads: State<'_, Downloads>, id: String) -> bool {
     downloads.cancel(&id)
 }
 
+/// URL of the locally served YouTube player page (see `player_server.rs`).
+#[tauri::command]
+fn player_url(state: State<'_, PlayerServer>) -> Result<String, String> {
+    state
+        .url()
+        .ok_or_else(|| "The local player server could not start.".to_string())
+}
+
 /* --------------------------------------------------------------------- main */
 
 fn main() {
@@ -621,7 +631,8 @@ fn main() {
             engine::playlist_next,
             engine::engine_status,
             engine::live_current,
-            engine::power_refresh
+            engine::power_refresh,
+            player_url
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -635,6 +646,15 @@ fn main() {
             app.manage(Downloads::new());
             app.manage(engine::Engine::new());
             engine::start(app.handle());
+
+            // YouTube only plays inside a real http origin, so host the player
+            // page on a loopback server. If it cannot start the rest of the app
+            // still works; only YouTube songs are unavailable.
+            let server = tauri::async_runtime::block_on(player_server::start()).unwrap_or_else(|err| {
+                eprintln!("driftwall: player server failed to start: {err}");
+                PlayerServer::unavailable()
+            });
+            app.manage(server);
 
             let show = MenuItem::with_id(app, "show", "Show Driftwall", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Driftwall", true, None::<&str>)?;

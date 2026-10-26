@@ -193,6 +193,11 @@ export function liveCurrent(): Promise<LiveCurrent | null> {
   return call<LiveCurrent | null>('live_current');
 }
 
+/** URL of the locally served YouTube player page (rejects if the server is down). */
+export function playerUrl(): Promise<string> {
+  return call<string>('player_url');
+}
+
 /** Re-checks battery/Low Power Mode immediately (after a policy change). */
 export function powerRefresh(): Promise<void> {
   return call<void>('power_refresh');

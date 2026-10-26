@@ -16,6 +16,8 @@ import { FilePlus2, Link2, Music as MusicIcon, Pause, Play, SkipBack, SkipForwar
 import { useToast } from './Toast.tsx';
 import * as api from '../lib/api.ts';
 import { assetUrl } from '../lib/paths.ts';
+import { createYouTubePlayer, type YTPlayer } from '../lib/ytBridge.ts';
+import { loadThumbnailColor, tintFromRgb, type VideoTint } from '../lib/tint.ts';
 import {
   MUSIC_CMD_EVENT,
   MUSIC_SETTING_KEY,
@@ -29,63 +31,6 @@ import {
   type MusicState,
   type MusicTrack,
 } from '../lib/music.ts';
-
-/* ------------------------------------------------------- YouTube iframe API */
-
-interface YTPlayer {
-  loadVideoById(options: { videoId: string; startSeconds?: number }): void;
-  playVideo(): void;
-  pauseVideo(): void;
-  setVolume(volume: number): void;
-  unMute(): void;
-  isMuted(): boolean;
-  getVideoData(): { title?: string };
-}
-
-interface YTNamespace {
-  Player: new (
-    element: HTMLElement,
-    options: {
-      width: string;
-      height: string;
-      playerVars: Record<string, number>;
-      events: {
-        onReady: () => void;
-        onStateChange: (event: { data: number }) => void;
-        onError: (event: { data: number }) => void;
-      };
-    },
-  ) => YTPlayer;
-}
-
-declare global {
-  interface Window {
-    YT?: YTNamespace;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let ytApiPromise: Promise<YTNamespace> | null = null;
-
-function loadYouTubeApi(): Promise<YTNamespace> {
-  if (window.YT?.Player) return Promise.resolve(window.YT);
-  if (!ytApiPromise) {
-    ytApiPromise = new Promise<YTNamespace>((resolve, reject) => {
-      window.onYouTubeIframeAPIReady = () => {
-        if (window.YT) resolve(window.YT);
-      };
-      const script = document.createElement('script');
-      script.src = 'https://www.youtube.com/iframe_api';
-      script.async = true;
-      script.onerror = () => {
-        ytApiPromise = null;
-        reject(new Error('Could not load the YouTube player (offline?).'));
-      };
-      document.head.appendChild(script);
-    });
-  }
-  return ytApiPromise;
-}
 
 /* ----------------------------------------------------------------- context */
 
@@ -127,10 +72,13 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
   const [playing, setPlaying] = useState(false);
   const [volume, setVolumeState] = useState(80);
   const [loaded, setLoaded] = useState(false);
+  // Colour of the playing video, so the video card and the now-playing bar match it.
+  const [tint, setTint] = useState<VideoTint | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const ytRef = useRef<YTPlayer | null>(null);
+  const tintRef = useRef<VideoTint | null>(null);
   const ytPromiseRef = useRef<Promise<YTPlayer> | null>(null);
   const tracksRef = useRef(tracks);
   const indexRef = useRef(index);
@@ -143,6 +91,38 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
 
   const current = index >= 0 ? tracks[index] : undefined;
   const title = current?.title ?? '';
+  const videoId = current?.kind === 'youtube' ? current.video_id : undefined;
+
+  useEffect(() => {
+    if (!videoId) {
+      setTint(null);
+      return;
+    }
+    let stale = false;
+    void loadThumbnailColor(videoId).then((rgb) => {
+      if (!stale) setTint(tintFromRgb(rgb));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [videoId]);
+
+  // Publish the colour as CSS variables (the stylesheet falls back to the
+  // normal surfaces when they are absent) and to the player page itself.
+  useEffect(() => {
+    tintRef.current = tint;
+    const root = document.documentElement.style;
+    if (tint) {
+      root.setProperty('--video-tint', tint.bg);
+      root.setProperty('--video-tint-bar', tint.bar);
+      root.setProperty('--video-tint-glow', tint.glow);
+      ytRef.current?.setTint(tint.hex);
+    } else {
+      root.removeProperty('--video-tint');
+      root.removeProperty('--video-tint-bar');
+      root.removeProperty('--video-tint-glow');
+    }
+  }, [tint]);
 
   // Load + persist the playlist.
   useEffect(() => {
@@ -170,68 +150,56 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
 
   const ensureYouTube = useCallback((): Promise<YTPlayer> => {
     if (ytPromiseRef.current) return ytPromiseRef.current;
-    const promise = loadYouTubeApi().then(
-      (YT) =>
-        new Promise<YTPlayer>((resolve) => {
-          const mount = mountRef.current;
-          if (!mount) throw new Error('Player container missing.');
-          const player: YTPlayer = new YT.Player(mount, {
-            width: '100%',
-            height: '100%',
-            playerVars: {
-              playsinline: 1,
-              rel: 0,
-              modestbranding: 1,
-              autoplay: 1,
-              fs: 0,
-              iv_load_policy: 3,
-              disablekb: 1,
-              enablejsapi: 1,
-            },
-            events: {
-              onReady: () => {
-                ytRef.current = player;
-                player.unMute();
-                player.setVolume(volumeRef.current);
-                resolve(player);
-              },
-              onStateChange: (event) => {
-                // The iframe reports asynchronously: ignore events that arrive
-                // after the user already moved on to a local file, otherwise a
-                // late "paused" flips the UI while the file is playing.
-                const cur = tracksRef.current[indexRef.current];
-                if (cur?.kind !== 'youtube') return;
-                // 0 ended, 1 playing, 2 paused
-                if (event.data === 0) nextRef.current();
-                if (event.data === 1) {
-                  failStreakRef.current = 0;
-                  setPlaying(true);
-                  // YouTube can start muted (autoplay policy) or reset the
-                  // volume when a new video loads: that was the "no audio" bug.
-                  if (player.isMuted()) player.unMute();
-                  player.setVolume(volumeRef.current);
-                  const t = player.getVideoData().title;
-                  if (t && cur.title === placeholderTitle(cur.video_id ?? '')) {
-                    setTrackTitle(cur.id, t);
-                  }
-                }
-                if (event.data === 2) setPlaying(false);
-              },
-              onError: (event) => {
-                setPlaying(false);
-                const count = tracksRef.current.length;
-                failStreakRef.current += 1;
-                const willSkip = count > 1 && failStreakRef.current < count;
-                toast(
-                  `${youtubeErrorMessage(event.data)}${willSkip ? ' Skipping to the next song.' : ''}`,
-                  'error',
-                );
-                if (willSkip) window.setTimeout(() => nextRef.current(), 1500);
-              },
-            },
-          });
-        }),
-    );
+    // The player page is served by the app's local HTTP server: YouTube
+    // refuses to play inside tauri://localhost (error 153).
+    const promise = api
+      .playerUrl()
+      .then((url) => {
+        const mount = mountRef.current;
+        if (!mount) throw new Error('Player container missing.');
+        return createYouTubePlayer(mount, url, {
+          onState: ({ state, title: videoTitle }) => {
+            // The iframe reports asynchronously: ignore events that arrive
+            // after the user already moved on to a local file, otherwise a
+            // late "paused" flips the UI while the file is playing.
+            const cur = tracksRef.current[indexRef.current];
+            if (cur?.kind !== 'youtube') return;
+            // 0 ended, 1 playing, 2 paused
+            if (state === 0) nextRef.current();
+            if (state === 1) {
+              failStreakRef.current = 0;
+              setPlaying(true);
+              // YouTube can start muted (autoplay policy) or reset the
+              // volume when a new video loads: that was the "no audio" bug.
+              const yt = ytRef.current;
+              if (yt?.isMuted()) yt.unMute();
+              yt?.setVolume(volumeRef.current);
+              if (videoTitle && cur.title === placeholderTitle(cur.video_id ?? '')) {
+                setTrackTitle(cur.id, videoTitle);
+              }
+            }
+            if (state === 2) setPlaying(false);
+          },
+          onError: (code) => {
+            setPlaying(false);
+            const count = tracksRef.current.length;
+            failStreakRef.current += 1;
+            const willSkip = count > 1 && failStreakRef.current < count;
+            toast(
+              `${youtubeErrorMessage(code)}${willSkip ? ' Skipping to the next song.' : ''}`,
+              'error',
+            );
+            if (willSkip) window.setTimeout(() => nextRef.current(), 1500);
+          },
+        });
+      })
+      .then((player) => {
+        ytRef.current = player;
+        player.unMute();
+        player.setVolume(volumeRef.current);
+        if (tintRef.current) player.setTint(tintRef.current.hex);
+        return player;
+      });
     ytPromiseRef.current = promise;
     promise.catch(() => {
       ytPromiseRef.current = null;
@@ -458,8 +426,27 @@ export function MusicProvider({ children, showVideo }: { children: ReactNode; sh
           }
         }}
       />
-      <div className={videoVisible ? 'yt-host on' : 'yt-host'}>
-        <div ref={mountRef} />
+      <div className={videoVisible ? 'yt-host on' : 'yt-host'} inert={!videoVisible}>
+        <div className="yt-frame">
+          <div ref={mountRef} />
+        </div>
+        <div className="yt-bar">
+          <span className="yt-title">{title || 'YouTube'}</span>
+          <button type="button" className="yt-btn" onClick={prev} aria-label="Previous">
+            <SkipBack size={14} />
+          </button>
+          <button
+            type="button"
+            className="yt-btn"
+            onClick={toggle}
+            aria-label={playing ? 'Pause' : 'Play'}
+          >
+            {playing ? <Pause size={14} /> : <Play size={14} />}
+          </button>
+          <button type="button" className="yt-btn" onClick={next} aria-label="Next">
+            <SkipForward size={14} />
+          </button>
+        </div>
       </div>
     </MusicContext.Provider>
   );

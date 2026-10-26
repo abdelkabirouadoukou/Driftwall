@@ -1706,8 +1706,13 @@ select {
   padding: var(--space-5);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-xl);
-  background: var(--surface-2);
+  background: linear-gradient(
+    135deg,
+    var(--video-tint, var(--surface-2)),
+    var(--video-tint-bar, var(--surface-2))
+  );
   box-shadow: var(--highlight);
+  transition: background-color 400ms ease;
 }
 
 .now-playing-thumb {
@@ -1855,13 +1860,16 @@ select {
   left: 0;
   bottom: 0;
   width: 320px;
-  height: 180px;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: #000;
+  /* --video-tint is set from the playing video's thumbnail (see lib/tint.ts). */
+  background: var(--video-tint, #000);
   opacity: 0.01;
   pointer-events: none;
   z-index: -1;
+  transition: background-color 400ms ease, box-shadow 400ms ease;
 }
 
 .yt-host.on {
@@ -1871,7 +1879,19 @@ select {
   opacity: 1;
   pointer-events: auto;
   z-index: 5;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 8px 30px var(--video-tint-glow, rgba(0, 0, 0, 0.5)),
+    0 0 0 1px var(--hairline);
+}
+
+.yt-frame {
+  height: 180px;
+  background: var(--video-tint, #000);
+}
+
+.yt-frame > div {
+  width: 100%;
+  height: 100%;
 }
 
 .yt-host iframe {
@@ -1879,6 +1899,45 @@ select {
   height: 100%;
   border: 0;
   display: block;
+}
+
+/* Our own toolbar replaces YouTube's black control strip, in the video's colour. */
+.yt-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  background: var(--video-tint-bar, var(--surface));
+  border-top: 1px solid var(--hairline);
+  transition: background-color 400ms ease;
+}
+
+.yt-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.yt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.yt-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .track-list {

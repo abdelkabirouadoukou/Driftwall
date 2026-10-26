@@ -12,3 +12,9 @@
   re-applies volume when a video starts, warms the player up so the first click isn't blocked,
   keeps the player on-screen (invisible) so WebKit doesn't throttle it, and shows a readable
   message (with auto-skip) for YouTube error codes.
+- **YouTube player server**: YouTube answered "error 153" because the app window is served from
+  `tauri://localhost`. A loopback-only HTTP server (`player_server.rs`, 127.0.0.1, random port, Host
+  check, strict CSP) now hosts the player page, which the app embeds as an iframe and drives through
+  `postMessage` (`lib/ytBridge.ts`). The main window's CSP no longer allows YouTube scripts.
+- **Video colours**: the floating video card, its new toolbar (replacing YouTube's black control strip)
+  and the "now playing" bar take their colour from the playing video's thumbnail (`lib/tint.ts`).
