@@ -49,9 +49,14 @@ jobs:
       - name: Test
         run: pnpm --filter driftwall-app test
 
+      # tauri.conf.json has an updater pubkey set (createUpdaterArtifacts: true),
+      # so the bundler now hard-errors without a matching private key -- even
+      # for a nightly build nobody's updater endpoint points at.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tagName: ${{ steps.tag.outputs.tag }}
