@@ -6,7 +6,7 @@
     "dev": "x dev",
     "build": "x build",
     "start": "x start",
-    "vercel-build": "x build --adapter vercel"
+    "vercel-build": "env -u VERCEL_GIT_PROVIDER -u VERCEL_GIT_REPO_SLUG -u VERCEL_GIT_REPO_OWNER -u VERCEL_GIT_REPO_ID -u VERCEL_GIT_COMMIT_REF -u VERCEL_GIT_COMMIT_SHA -u VERCEL_GIT_COMMIT_MESSAGE -u VERCEL_GIT_COMMIT_AUTHOR_LOGIN -u VERCEL_GIT_COMMIT_AUTHOR_NAME -u VERCEL_GIT_PULL_REQUEST_ID -u VERCEL_URL -u VERCEL_BRANCH_URL -u VERCEL_PROJECT_PRODUCTION_URL x build --adapter vercel"
   },
   "dependencies": {
     "react": "^19.1.0",
