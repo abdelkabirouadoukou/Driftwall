@@ -8,6 +8,7 @@
     "core:window:allow-start-dragging",
     "process:default",
     "dialog:default",
+    "updater:default",
     {
       "identifier": "fs:allow-copy-file",
       "allow": [{ "path": "**" }]

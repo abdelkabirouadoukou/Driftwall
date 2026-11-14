@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatTime,
+  nextRepeatMode,
   parseTimestamp,
   parseYouTubeUrl,
   placeholderTitle,
@@ -71,5 +73,25 @@ describe('youtubeErrorMessage', () => {
 
   it('falls back to the code for unknown errors', () => {
     expect(youtubeErrorMessage(999)).toContain('999');
+  });
+});
+
+describe('nextRepeatMode', () => {
+  it('cycles off -> all -> one -> off', () => {
+    expect(nextRepeatMode('off')).toBe('all');
+    expect(nextRepeatMode('all')).toBe('one');
+    expect(nextRepeatMode('one')).toBe('off');
+  });
+});
+
+describe('formatTime', () => {
+  it('formats minutes and seconds', () => {
+    expect(formatTime(0)).toBe('0:00');
+    expect(formatTime(65)).toBe('1:05');
+    expect(formatTime(3725)).toBe('1:02:05');
+  });
+  it('is defensive about bad input', () => {
+    expect(formatTime(-5)).toBe('0:00');
+    expect(formatTime(NaN)).toBe('0:00');
   });
 });

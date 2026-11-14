@@ -98,6 +98,14 @@ body {
   overflow: hidden;
 }
 
+/* The menu-bar panel is a borderless, OS-transparent window: its own
+   background has to be transparent so `.panel`'s border-radius clips to a
+   rounded card instead of sitting inside a square window. */
+html.panel-window,
+html.panel-window body {
+  background: transparent;
+}
+
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -1736,6 +1744,31 @@ select {
   object-fit: cover;
 }
 
+.seek-bar {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.seek-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
+.seek-bar:hover .seek-bar-fill {
+  background: var(--accent-strong, var(--accent));
+}
+
+.btn.icon.ghost.active {
+  color: var(--accent);
+}
+
 .current-pill {
   display: inline-flex;
   align-items: center;
@@ -1940,6 +1973,23 @@ select {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.yt-btn.active {
+  color: var(--accent);
+}
+
+.yt-seek {
+  position: relative;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+}
+
+.yt-seek-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+}
+
 .track-list {
   list-style: none;
   margin: 0;
@@ -1982,6 +2032,43 @@ select {
   cursor: pointer;
 }
 
+.track-art {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.track-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.track-art-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.track-row:hover .track-art-overlay,
+.track-row.active .track-art-overlay {
+  opacity: 1;
+}
+
 .track-title {
   flex: 1;
   min-width: 0;
@@ -1998,6 +2085,9 @@ select {
   flex-direction: column;
   gap: var(--space-2);
   background: var(--bg, var(--surface));
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55), var(--highlight);
 }
 
 .panel-head {

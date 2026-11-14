@@ -43,14 +43,20 @@ jobs:
       - name: Test
         run: pnpm --filter driftwall-app test
 
+      # Signs the updater artifact (latest.json + .sig) with the keypair from
+      # `tauri signer generate` so the in-app updater can trust it. Without
+      # these two secrets set on the repo, the build still produces a normal
+      # .dmg but updates silently stay unsigned-and-unavailable.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tagName: v__VERSION__
           releaseName: 'Driftwall v__VERSION__'
-          releaseBody: 'Unsigned .dmg build. Gatekeeper will flag it as an "unidentified developer" — right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/Driftwall.app`.'
+          releaseBody: 'Gatekeeper will flag an unsigned app as an "unidentified developer" — right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/Driftwall.app`. Already running an earlier version? Settings → About → Check for updates.'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

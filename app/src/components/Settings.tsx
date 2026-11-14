@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { ExternalLink, Eye, EyeOff, FolderOpen, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, Eye, EyeOff, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
 import { useToast } from './Toast.tsx';
 import Skeleton from './Skeleton.tsx';
 import * as api from '../lib/api.ts';
 import { wallpapersDir } from '../lib/paths.ts';
 import { DEFAULT_POWER_POLICY, type PowerPolicy } from '../lib/domain.ts';
+import { checkForUpdate, installUpdate, type UpdateInfo } from '../lib/updater.ts';
 
 /** Sources that use an API key you create yourself (stored locally). */
 const KEY_SOURCES: {
@@ -95,6 +96,9 @@ export default function Settings() {
   const [dock, setDock] = useState(true);
   const [libraryPath, setLibraryPath] = useState('');
   const [version, setVersion] = useState('');
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -128,6 +132,36 @@ export default function Settings() {
     void api.revealInFinder(libraryPath).catch(() => {
       toast('Could not open the library folder', 'error');
     });
+  };
+
+  const runUpdateCheck = async (silent: boolean) => {
+    setCheckingUpdate(true);
+    try {
+      const found = await checkForUpdate();
+      setUpdateInfo(found);
+      if (!found && !silent) toast('You’re on the latest version.');
+    } catch (error) {
+      if (!silent) toast(`Could not check for updates: ${String(error)}`, 'error');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  // Check once, quietly, shortly after launch; the user can always check by hand below.
+  useEffect(() => {
+    const id = window.setTimeout(() => void runUpdateCheck(true), 3000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const runInstallUpdate = async () => {
+    if (!updateInfo) return;
+    setInstallingUpdate(true);
+    try {
+      await installUpdate(updateInfo);
+    } catch (error) {
+      toast(`Could not install the update: ${String(error)}`, 'error');
+      setInstallingUpdate(false);
+    }
   };
 
   return (
@@ -225,6 +259,36 @@ export default function Settings() {
             <span className="muted small mono">v{version}</span>
           ) : (
             <Skeleton height={15} width={42} radius={4} />
+          )}
+        </Row>
+        <Row
+          title="Updates"
+          desc={
+            updateInfo
+              ? `Version ${updateInfo.version} is ready to install.`
+              : 'Driftwall checks GitHub for new releases.'
+          }
+        >
+          {updateInfo ? (
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void runInstallUpdate()}
+              disabled={installingUpdate}
+            >
+              <Download size={14} aria-hidden="true" />
+              <span>{installingUpdate ? 'Installing…' : 'Install & restart'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void runUpdateCheck(false)}
+              disabled={checkingUpdate}
+            >
+              <RefreshCw size={14} aria-hidden="true" className={checkingUpdate ? 'spin' : ''} />
+              <span>{checkingUpdate ? 'Checking…' : 'Check for updates'}</span>
+            </button>
           )}
         </Row>
       </Section>

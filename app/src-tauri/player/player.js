@@ -5,8 +5,8 @@
  * and is embedded by the app window as an <iframe>. The app talks to it with
  * postMessage; this file wraps YouTube's IFrame API.
  *
- *   app  -> player: init | load | play | pause | volume | tint
- *   player -> app : ready | state | error
+ *   app  -> player: init | load | play | pause | volume | tint | seek
+ *   player -> app : ready | state | error | progress
  */
 (function () {
   'use strict';
@@ -16,6 +16,7 @@
   var ready = false;
   var queue = [];
   var apiRequested = false;
+  var progressTimer = null;
 
   function send(message) {
     if (parentOrigin && window.parent !== window) {
@@ -59,6 +60,19 @@
           var pending = queue;
           queue = [];
           pending.forEach(handle);
+          if (!progressTimer) {
+            // Polled (the IFrame API has no time-update event) so the app's
+            // seek bar can track playback without the player driving it.
+            progressTimer = window.setInterval(function () {
+              try {
+                var duration = player.getDuration() || 0;
+                if (duration <= 0) return;
+                send({ type: 'progress', currentTime: player.getCurrentTime() || 0, duration: duration });
+              } catch (e) {
+                /* not ready yet */
+              }
+            }, 1000);
+          }
         },
         onStateChange: function (event) {
           send(snapshot(event.data));
@@ -102,6 +116,9 @@
       case 'volume':
         player.unMute();
         player.setVolume(Number(message.value) || 0);
+        break;
+      case 'seek':
+        player.seekTo(Number(message.value) || 0, true);
         break;
     }
   }

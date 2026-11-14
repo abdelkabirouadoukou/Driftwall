@@ -5,6 +5,9 @@ import {
   Music as MusicIcon,
   Pause,
   Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
   SkipBack,
   SkipForward,
   Square,
@@ -23,8 +26,10 @@ import {
 } from '../lib/dom.ts';
 import { DEFAULT_POWER_POLICY, type EngineStatus, type PowerPolicy, type WallpaperRecord } from '../lib/domain.ts';
 import {
+  formatTime,
   MUSIC_CMD_EVENT,
   MUSIC_STATE_EVENT,
+  nextRepeatMode,
   type MusicCommand,
   type MusicState,
 } from '../lib/music.ts';
@@ -193,7 +198,42 @@ export default function TrayPanel() {
         <span className="panel-title">
           {music && music.count > 0 ? music.title || 'Ready to play' : 'No songs yet'}
         </span>
+        {music && music.count > 0 && (
+          <>
+            <div
+              className="seek-bar"
+              role="slider"
+              aria-label="Seek"
+              aria-valuemin={0}
+              aria-valuemax={music.duration || 0}
+              aria-valuenow={music.progress}
+              onClick={(e) => {
+                if (!music.duration) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                sendMusic({ type: 'seek', value: ((e.clientX - rect.left) / rect.width) * music.duration });
+              }}
+            >
+              <div
+                className="seek-bar-fill"
+                style={{ width: music.duration ? `${(music.progress / music.duration) * 100}%` : '0%' }}
+              />
+            </div>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <span className="muted small">{formatTime(music.progress)}</span>
+              <span className="muted small">{formatTime(music.duration)}</span>
+            </div>
+          </>
+        )}
         <div className="row" style={{ gap: 8 }}>
+          <button
+            type="button"
+            className={music?.shuffle ? 'btn icon ghost active' : 'btn icon ghost'}
+            onClick={() => sendMusic({ type: 'shuffle', value: !music?.shuffle })}
+            aria-label="Shuffle"
+            aria-pressed={music?.shuffle}
+          >
+            <Shuffle size={13} />
+          </button>
           <button type="button" className="btn icon" onClick={() => sendMusic({ type: 'prev' })} aria-label="Previous">
             <SkipBack size={14} />
           </button>
@@ -209,6 +249,17 @@ export default function TrayPanel() {
           <button type="button" className="btn icon" onClick={() => sendMusic({ type: 'next' })} aria-label="Next">
             <SkipForward size={14} />
           </button>
+          <button
+            type="button"
+            className={music && music.repeat !== 'off' ? 'btn icon ghost active' : 'btn icon ghost'}
+            onClick={() => sendMusic({ type: 'repeat', value: nextRepeatMode(music?.repeat ?? 'off') })}
+            aria-label="Repeat"
+            aria-pressed={!!music && music.repeat !== 'off'}
+          >
+            {music?.repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}
+          </button>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
           <Volume2 size={14} className="muted" aria-hidden="true" />
           <input
             type="range"

@@ -10,7 +10,8 @@
 export type PlayerMessage =
   | { type: 'ready' }
   | { type: 'state'; state: number; title: string; muted: boolean }
-  | { type: 'error'; code: number };
+  | { type: 'error'; code: number }
+  | { type: 'progress'; currentTime: number; duration: number };
 
 /** Validates a message coming from the player page; anything odd is dropped. */
 export function parsePlayerMessage(data: unknown): PlayerMessage | null {
@@ -29,6 +30,9 @@ export function parsePlayerMessage(data: unknown): PlayerMessage | null {
       };
     case 'error':
       return typeof msg.code === 'number' ? { type: 'error', code: msg.code } : null;
+    case 'progress':
+      if (typeof msg.currentTime !== 'number' || typeof msg.duration !== 'number') return null;
+      return { type: 'progress', currentTime: msg.currentTime, duration: msg.duration };
     default:
       return null;
   }
@@ -44,11 +48,15 @@ export interface YTPlayer {
   getVideoData(): { title?: string };
   /** Paints the player page's own background (visible if the video letterboxes). */
   setTint(hex: string): void;
+  /** Scrubs to an absolute position, in seconds. */
+  seekTo(seconds: number): void;
 }
 
 export interface YTEvents {
   onState: (event: { state: number; title: string; muted: boolean }) => void;
   onError: (code: number) => void;
+  /** Polled roughly twice a second while a video is loaded, for a seek bar. */
+  onProgress?: (event: { currentTime: number; duration: number }) => void;
 }
 
 const READY_TIMEOUT_MS = 20_000;
@@ -95,6 +103,7 @@ export function createYouTubePlayer(
       isMuted: () => muted,
       getVideoData: () => ({ title }),
       setTint: (hex) => post({ type: 'tint', color: hex }),
+      seekTo: (seconds) => post({ type: 'seek', value: seconds }),
     };
 
     const timer = window.setTimeout(() => {
@@ -116,6 +125,8 @@ export function createYouTubePlayer(
         muted = msg.muted;
         title = msg.title;
         events.onState(msg);
+      } else if (msg.type === 'progress') {
+        events.onProgress?.(msg);
       } else if (!settled && msg.code === -1) {
         settled = true;
         window.clearTimeout(timer);

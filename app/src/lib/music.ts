@@ -12,6 +12,8 @@ export interface MusicTrack {
   path?: string;
 }
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 /** Snapshot the main window broadcasts so the menu-bar panel can mirror it. */
 export interface MusicState {
   playing: boolean;
@@ -19,6 +21,10 @@ export interface MusicState {
   index: number;
   count: number;
   volume: number;
+  progress: number;
+  duration: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
 }
 
 export type MusicCommand =
@@ -26,6 +32,9 @@ export type MusicCommand =
   | { type: 'next' }
   | { type: 'prev' }
   | { type: 'volume'; value: number }
+  | { type: 'seek'; value: number }
+  | { type: 'shuffle'; value: boolean }
+  | { type: 'repeat'; value: RepeatMode }
   | { type: 'request-state' };
 
 export const MUSIC_STATE_EVENT = 'music-state';
@@ -82,6 +91,24 @@ export function parseYouTubeUrl(raw: string): { videoId: string; start: number }
 export function stepIndex(current: number, count: number, delta: 1 | -1): number {
   if (count <= 0) return -1;
   return (((current + delta) % count) + count) % count;
+}
+
+/** off -> all -> one -> off, for the repeat button. */
+export function nextRepeatMode(mode: RepeatMode): RepeatMode {
+  if (mode === 'off') return 'all';
+  if (mode === 'all') return 'one';
+  return 'off';
+}
+
+/** mm:ss (or h:mm:ss past an hour), for the seek bar. */
+export function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
 /** Friendly default title for a not-yet-loaded YouTube track. */

@@ -25,6 +25,10 @@ function windowLabel(): string {
 
 function Root() {
   const label = windowLabel();
+  // The panel window is transparent at the OS level so its rounded corners
+  // show the desktop through them instead of a square; this is what lets the
+  // CSS border-radius on `.panel` actually read as rounded.
+  if (label === 'panel') document.documentElement.classList.add('panel-window');
   if (label.startsWith('wallpaper')) return <LivePlayer />;
   if (label === 'panel') return <TrayPanel />;
   return <App />;

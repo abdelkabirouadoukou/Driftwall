@@ -111,6 +111,7 @@ fn toggle_panel(app: &AppHandle, rect: tauri::Rect) {
         .title("Driftwall")
         .inner_size(PANEL_W, PANEL_H)
         .decorations(false)
+        .transparent(true)
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -637,6 +638,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Load (or create) the Rust-owned library and put it in managed state.
             let dir = app.path().app_data_dir()?;
