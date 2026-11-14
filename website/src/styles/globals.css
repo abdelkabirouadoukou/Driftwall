@@ -1,0 +1,59 @@
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@theme inline {
+  --color-bg: #0a0a10;
+  --color-surface: #12121a;
+  --color-surface-2: #171722;
+  --color-line: #26263a;
+  --color-line-2: #33334a;
+  --color-ink: #e8e6ff;
+  --color-muted: #a6a3c0;
+  --color-primary: #7c5cff;
+  --color-primary-ink: #0a0a10;
+  --color-teal: #2dd4bf;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Soft glow behind the hero/CTA cards; a plain CSS gradient, not an image,
+   so it costs nothing and never shifts layout. */
+.glow {
+  background:
+    radial-gradient(480px 300px at 15% 0%, rgba(124, 92, 255, 0.22), transparent 60%),
+    radial-gradient(420px 280px at 100% 10%, rgba(45, 212, 191, 0.14), transparent 60%);
+}
+
+.text-balance {
+  text-wrap: balance;
+}
